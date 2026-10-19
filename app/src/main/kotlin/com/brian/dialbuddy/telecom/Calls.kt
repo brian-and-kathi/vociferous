@@ -109,19 +109,21 @@ object Calls {
     }
 
     private fun publish() {
+        val lines = current.keys.map { call ->
+            val handle = call.details.handle
+            CallLine(
+                key = System.identityHashCode(call).toString(),
+                number = handle?.schemeSpecificPart.orEmpty(),
+                state = call.details.state,
+            )
+        }
         _state.value = InCallState(
-            calls = current.keys.map { call ->
-                val handle = call.details.handle
-                CallLine(
-                    key = System.identityHashCode(call).toString(),
-                    number = handle?.schemeSpecificPart.orEmpty(),
-                    state = call.details.state,
-                )
-            },
+            calls = lines,
             muted = muted,
             route = audioRoute,
             bluetoothAvailable = (supportedRoutes and CallAudioState.ROUTE_BLUETOOTH) != 0,
         )
+        service?.let { UnknownRinger.sync(it, lines) }
     }
 
     private fun find(key: String): Call? =

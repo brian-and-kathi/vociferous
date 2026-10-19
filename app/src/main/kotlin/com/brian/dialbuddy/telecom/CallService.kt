@@ -20,10 +20,15 @@ class CallService : InCallService() {
 
     override fun onDestroy() {
         if (Calls.service === this) {
+            UnknownRinger.stop()
             Calls.service = null
         }
         cancelNotification()
         super.onDestroy()
+    }
+
+    override fun onSilenceRinger() {
+        UnknownRinger.silence()
     }
 
     override fun onCallAdded(call: Call) {

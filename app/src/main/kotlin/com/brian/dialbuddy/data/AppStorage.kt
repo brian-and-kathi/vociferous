@@ -9,9 +9,15 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.brian.dialbuddy.domain.formatAreaCodes
+import com.brian.dialbuddy.domain.parseAreaCodes
 import kotlinx.coroutines.flow.first
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "app_prefs")
+
+// The screening service reads these on the incoming-call thread.
+private const val AREA_PREFS = "area_codes"
+private const val AREA_KEY = "codes"
 
 class AppStorage(private val context: Context) {
 
@@ -52,4 +58,17 @@ class AppStorage(private val context: Context) {
     suspend fun setBoolean(key: Preferences.Key<Boolean>, value: Boolean) {
         context.dataStore.edit { it[key] = value }
     }
+
+    fun readAreaCodes(): List<String> =
+        parseAreaCodes(
+            context.getSharedPreferences(AREA_PREFS, Context.MODE_PRIVATE)
+                .getString(AREA_KEY, "")
+                .orEmpty(),
+        )
+
+    fun writeAreaCodes(codes: Collection<String>): Boolean =
+        context.getSharedPreferences(AREA_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(AREA_KEY, formatAreaCodes(codes))
+            .commit()
 }

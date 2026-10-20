@@ -8,24 +8,92 @@ import org.junit.Test
 class UnknownRingtoneTest {
     @Test
     fun knownCallersKeepTheSystemRingtone() {
-        assertFalse(useUnknownRingtone(incoming = true, number = "555", contactsAllowed = true, inContacts = true))
+        assertFalse(
+            useUnknownRingtone(
+                incoming = true,
+                number = "2125550100",
+                contactsAllowed = true,
+                inContacts = true,
+                areaCodes = setOf("212"),
+            ),
+        )
     }
 
     @Test
-    fun unrecognizedNumbersUseTheOtherRingtone() {
-        assertTrue(useUnknownRingtone(incoming = true, number = "555", contactsAllowed = true, inContacts = false))
+    fun unrecognizedNumbersUseTheOtherRingtoneWhenTheAreaCodeIsSaved() {
+        assertTrue(
+            useUnknownRingtone(
+                incoming = true,
+                number = "+1 (212) 555-0100",
+                contactsAllowed = true,
+                inContacts = false,
+                areaCodes = setOf("212"),
+            ),
+        )
     }
 
     @Test
-    fun blankNumbersUseTheOtherRingtone() {
-        assertTrue(useUnknownRingtone(incoming = true, number = "  ", contactsAllowed = true, inContacts = false))
-        assertTrue(useUnknownRingtone(incoming = true, number = "", contactsAllowed = false, inContacts = false))
+    fun otherAreaCodesAndNumbersWithoutOneKeepTheSystemRingtone() {
+        val saved = setOf("212")
+        assertFalse(
+            useUnknownRingtone(
+                incoming = true,
+                number = "4155550100",
+                contactsAllowed = true,
+                inContacts = false,
+                areaCodes = saved,
+            ),
+        )
+        assertFalse(
+            useUnknownRingtone(
+                incoming = true,
+                number = "  ",
+                contactsAllowed = true,
+                inContacts = false,
+                areaCodes = saved,
+            ),
+        )
+        assertFalse(
+            useUnknownRingtone(
+                incoming = true,
+                number = "",
+                contactsAllowed = false,
+                inContacts = false,
+                areaCodes = saved,
+            ),
+        )
+        assertFalse(
+            useUnknownRingtone(
+                incoming = true,
+                number = "2125550100",
+                contactsAllowed = true,
+                inContacts = false,
+                areaCodes = emptySet(),
+            ),
+        )
     }
 
     @Test
     fun outgoingCallsAndUnreadContactsKeepTheSystemRingtone() {
-        assertFalse(useUnknownRingtone(incoming = false, number = "555", contactsAllowed = true, inContacts = false))
-        assertFalse(useUnknownRingtone(incoming = true, number = "555", contactsAllowed = false, inContacts = false))
+        val saved = setOf("212")
+        assertFalse(
+            useUnknownRingtone(
+                incoming = false,
+                number = "2125550100",
+                contactsAllowed = true,
+                inContacts = false,
+                areaCodes = saved,
+            ),
+        )
+        assertFalse(
+            useUnknownRingtone(
+                incoming = true,
+                number = "2125550100",
+                contactsAllowed = false,
+                inContacts = false,
+                areaCodes = saved,
+            ),
+        )
     }
 
     @Test

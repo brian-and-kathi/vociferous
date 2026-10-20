@@ -1,5 +1,8 @@
 package com.brian.dialbuddy.ui.screens
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -49,12 +52,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.sp
 import com.brian.dialbuddy.R
+import com.brian.dialbuddy.data.ReleaseLookup
 import com.brian.dialbuddy.domain.DeletionCounts
+import com.brian.dialbuddy.domain.isNewerRelease
 import com.brian.dialbuddy.domain.presentVoicemails
 import com.brian.dialbuddy.telecom.Calls
+import com.brian.dialbuddy.ui.components.AreaCodesPage
 import com.brian.dialbuddy.ui.components.CallsMenu
 import com.brian.dialbuddy.ui.components.HistoryPage
 import com.brian.dialbuddy.ui.components.KeypadPane
@@ -62,6 +70,8 @@ import com.brian.dialbuddy.ui.components.MailMenu
 import com.brian.dialbuddy.ui.components.MailboxPane
 import com.brian.dialbuddy.ui.components.NoticesMenu
 import com.brian.dialbuddy.ui.components.NoticesPage
+import com.brian.dialbuddy.ui.components.PhoneMenu
+import com.brian.dialbuddy.ui.components.appVersionName
 import com.brian.dialbuddy.ui.components.RaggedCard
 import com.brian.dialbuddy.ui.components.SpeakerButton
 import com.brian.dialbuddy.ui.components.StatTable
@@ -115,6 +125,10 @@ fun DialScreen(
     val noticePager = rememberPagerState(initialPage = 0) { noticeApps.size.coerceAtLeast(1) }
     var shownMailCard by remember { mutableStateOf<MailboxTab?>(null) }
     var shownNoticeApp by remember { mutableStateOf<String?>(null) }
+    var areaCodesOpen by remember { mutableStateOf(false) }
+    var updateNotice by remember { mutableStateOf<UpdateNotice?>(null) }
+    var updateCheck by remember { mutableIntStateOf(0) }
+    val version = remember(context) { appVersionName(context) }
     LaunchedEffect(state.toast) {
         val message = state.toast ?: return@LaunchedEffect
         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -129,6 +143,7 @@ fun DialScreen(
     LaunchedEffect(callActive) {
         if (callActive && !wasInCall) {
             section = PHONE
+            areaCodesOpen = false
             phonePager.animateScrollToPage(1)
         }
         if (!callActive && phonePager.currentPage != 0) {
@@ -179,11 +194,34 @@ fun DialScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
         if (section == PHONE) {
-            PageDots(
-                page = phonePager.currentPage,
-                count = if (callActive) 2 else 1,
-                color = PhoneBand,
-            )
+            Row(
+                Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PhoneMenu(
+                    version = version,
+                    onAreaCodes = {
+                        areaCodesOpen = true
+                        scope.launch { phonePager.animateScrollToPage(0) }
+                    },
+                    onCheckUpdates = {
+                        val generation = updateCheck + 1
+                        updateCheck = generation
+                        updateNotice = UpdateNotice.Checking
+                        scope.launch {
+                            val notice = withContext(Dispatchers.IO) { lookForUpdate(version) }
+                            if (updateCheck == generation) updateNotice = notice
+                        }
+                    },
+                )
+                PageDots(
+                    page = phonePager.currentPage,
+                    count = if (callActive) 2 else 1,
+                    color = PhoneBand,
+                    modifier = Modifier.weight(1f),
+                )
+                Box(Modifier.size(36.dp))
+            }
             HorizontalPager(
                 state = phonePager,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -191,12 +229,24 @@ fun DialScreen(
             ) { page ->
                 PageCard(
                     seed = page,
-                    title = if (page == 1 && callActive) stringResource(R.string.state_call) else null,
+                    title = when {
+                        page == 1 && callActive -> stringResource(R.string.state_call)
+                        page == 0 && areaCodesOpen -> stringResource(R.string.area_codes)
+                        else -> null
+                    },
                     band = PhoneBand,
                     ink = PhoneInk,
                     stroke = PhoneStroke,
                 ) {
-                    if (page == 0 || !callActive) {
+                    if (page == 0 && areaCodesOpen) {
+                        AreaCodesPage(
+                            codes = state.areaCodes,
+                            onAdd = viewModel::addAreaCode,
+                            onRemove = viewModel::removeAreaCode,
+                            onClose = { areaCodesOpen = false },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else if (page == 0 || !callActive) {
                         KeypadPane(
                             digits = state.digits,
                             contactName = state.dialContactName,
@@ -426,6 +476,17 @@ fun DialScreen(
         }
     }
     ConfirmDialogs(viewModel, state.pendingConfirm)
+    UpdateDialog(
+        notice = updateNotice,
+        onDismiss = {
+            updateCheck += 1
+            updateNotice = null
+        },
+        onDownload = { url ->
+            updateNotice = null
+            openDownload(context, url)
+        },
+    )
 }
 
 @Composable
@@ -654,6 +715,65 @@ private fun StatsPage(
             )
         }
     }
+}
+
+private sealed interface UpdateNotice {
+    data object Checking : UpdateNotice
+    data object Current : UpdateNotice
+    data class Available(val version: String, val downloadUrl: String?) : UpdateNotice
+    data object Failed : UpdateNotice
+}
+
+private fun lookForUpdate(installed: String): UpdateNotice {
+    val published = try {
+        ReleaseLookup.latest()
+    } catch (_: Exception) {
+        null
+    } ?: return UpdateNotice.Failed
+    val version = published.version.removePrefix("v").removePrefix("V")
+    return if (isNewerRelease(installed, version)) {
+        UpdateNotice.Available(version, published.downloadUrl)
+    } else {
+        UpdateNotice.Current
+    }
+}
+
+private fun openDownload(context: android.content.Context, url: String) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, context.getString(R.string.update_failed), Toast.LENGTH_LONG).show()
+    }
+}
+
+@Composable
+private fun UpdateDialog(
+    notice: UpdateNotice?,
+    onDismiss: () -> Unit,
+    onDownload: (String) -> Unit,
+) {
+    if (notice == null) return
+    val message = when (notice) {
+        UpdateNotice.Checking -> stringResource(R.string.update_checking)
+        UpdateNotice.Current -> stringResource(R.string.update_current)
+        is UpdateNotice.Available -> stringResource(R.string.update_available, notice.version)
+        UpdateNotice.Failed -> stringResource(R.string.update_failed)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.check_for_updates)) },
+        text = { Text(message) },
+        confirmButton = {
+            if (notice is UpdateNotice.Available && notice.downloadUrl != null) {
+                TextButton(onClick = { onDownload(notice.downloadUrl) }) {
+                    Text(stringResource(R.string.update_download))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+        },
+    )
 }
 
 @Composable

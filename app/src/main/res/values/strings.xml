@@ -2,6 +2,19 @@
 <resources>
     <string name="app_name">Vociferous</string>
     <string name="tab_phone">Phone</string>
+    <string name="phone_menu">Phone</string>
+    <string name="area_codes">Area codes</string>
+    <string name="area_codes_body">Unrecognized callers from these area codes use the special ringtone.</string>
+    <string name="area_codes_empty">No area codes yet. Unrecognized callers use the normal ringtone.</string>
+    <string name="area_code_add">Add</string>
+    <string name="area_code_hint">Code</string>
+    <string name="area_code_remove">Remove</string>
+    <string name="check_for_updates">Check for updates</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_current">This is the latest version.</string>
+    <string name="update_available">Version %1$s is available.</string>
+    <string name="update_failed">Could not check for updates.</string>
+    <string name="update_download">Download</string>
     <string name="tab_history">Calls</string>
     <string name="calls_menu">Call lists</string>
     <string name="tab_notices">Notices</string>

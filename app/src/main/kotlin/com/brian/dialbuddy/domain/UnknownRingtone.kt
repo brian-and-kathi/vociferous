@@ -17,18 +17,20 @@ data class RingPlayback(
     val vibrate: Boolean,
 )
 
-// Blank numbers are unrecognized even when contacts cannot be read.
-// A non-blank number keeps the system ringtone when lookup was not allowed.
+// The other ringtone plays only for an incoming unrecognized number whose
+// area code is one the user saved. Known callers, outgoing calls, numbers
+// with no area code, and calls that could not be checked against contacts
+// keep the system ringtone.
 fun useUnknownRingtone(
     incoming: Boolean,
     number: String,
     contactsAllowed: Boolean,
     inContacts: Boolean,
+    areaCodes: Set<String>,
 ): Boolean {
-    if (!incoming) return false
-    if (number.isBlank()) return true
-    if (!contactsAllowed) return false
-    return !inContacts
+    if (!incoming || !contactsAllowed || inContacts || areaCodes.isEmpty()) return false
+    val code = areaCodeOf(number) ?: return false
+    return code in areaCodes
 }
 
 fun ringPlayback(

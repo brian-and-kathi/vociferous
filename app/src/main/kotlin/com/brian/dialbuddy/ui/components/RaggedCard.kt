@@ -1,8 +1,5 @@
 package com.brian.dialbuddy.ui.components
 
-import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -33,7 +30,6 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -74,8 +70,6 @@ fun RaggedCard(
     content: @Composable BoxScope.() -> Unit,
 ) {
     var headerBottom by remember { mutableFloatStateOf(0f) }
-    val context = LocalContext.current
-    val version = remember(context) { appVersionName(context) }
     val outline = remember(seed) { RaggedShape(seed) }
     Box(
         modifier
@@ -108,7 +102,7 @@ fun RaggedCard(
                     .fillMaxWidth()
                     .onSizeChanged { headerBottom = it.height.toFloat() }
                     .padding(top = 14.dp, bottom = 8.dp)
-                    .padding(start = 28.dp, end = 12.dp),
+                    .padding(horizontal = 28.dp),
             ) {
                 if (title != null) {
                     Text(
@@ -117,18 +111,7 @@ fun RaggedCard(
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(horizontal = 52.dp),
-                    )
-                }
-                if (version.isNotBlank()) {
-                    Text(
-                        text = version,
-                        color = ink,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.align(Alignment.CenterEnd),
+                        modifier = Modifier.align(Alignment.Center),
                     )
                 }
             }
@@ -143,19 +126,6 @@ fun RaggedCard(
         }
         overlay()
     }
-}
-
-private fun appVersionName(context: Context): String {
-    val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        context.packageManager.getPackageInfo(
-            context.packageName,
-            PackageManager.PackageInfoFlags.of(0),
-        )
-    } else {
-        @Suppress("DEPRECATION")
-        context.packageManager.getPackageInfo(context.packageName, 0)
-    }
-    return info.versionName.orEmpty()
 }
 
 private class RaggedShape(private val seed: Int) : Shape {

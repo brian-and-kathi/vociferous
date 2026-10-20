@@ -19,6 +19,7 @@ import com.brian.dialbuddy.R
 import com.brian.dialbuddy.data.AppStorage
 import com.brian.dialbuddy.data.NoticeLog
 import com.brian.dialbuddy.domain.CallRecord
+import com.brian.dialbuddy.domain.normalizeAreaCode
 import com.brian.dialbuddy.domain.Notice
 import com.brian.dialbuddy.domain.NoticeApp
 import com.brian.dialbuddy.domain.DeletionCounts
@@ -128,6 +129,7 @@ data class DialUiState(
     val noticeAccess: Boolean = false,
     val playingVoicemailId: Long? = null,
     val playbackFraction: Float = 0f,
+    val areaCodes: List<String> = emptyList(),
 )
 
 sealed class DialCommand {
@@ -207,6 +209,7 @@ class DialViewModel(app: Application) : AndroidViewModel(app) {
             val unknown = storage.getLongOnce(AppStorage.Keys.DELETED_UNKNOWN)
             val bulk = storage.getLongOnce(AppStorage.Keys.DELETED_BULK)
             val speaker = storage.getBooleanOnce(AppStorage.Keys.SPEAKER)
+            val areaCodes = storage.readAreaCodes()
             player.setSpeaker(speaker)
             _state.update {
                 it.copy(
@@ -217,6 +220,7 @@ class DialViewModel(app: Application) : AndroidViewModel(app) {
                     deletedUnknown = unknown,
                     deletedBulk = bulk,
                     speakerOn = speaker,
+                    areaCodes = areaCodes,
                     loaded = true,
                 )
             }
@@ -263,6 +267,21 @@ class DialViewModel(app: Application) : AndroidViewModel(app) {
 
     fun showMailbox(tab: MailboxTab) {
         _state.update { it.copy(mailboxTab = tab) }
+    }
+
+    fun addAreaCode(raw: String) {
+        val code = normalizeAreaCode(raw) ?: return
+        val next = (_state.value.areaCodes + code).distinct().sorted()
+        if (next == _state.value.areaCodes) return
+        if (!storage.writeAreaCodes(next)) return
+        _state.update { it.copy(areaCodes = next) }
+    }
+
+    fun removeAreaCode(code: String) {
+        val next = _state.value.areaCodes.filterNot { it == code }
+        if (next == _state.value.areaCodes) return
+        if (!storage.writeAreaCodes(next)) return
+        _state.update { it.copy(areaCodes = next) }
     }
 
     fun setThreshold(seconds: Int) {

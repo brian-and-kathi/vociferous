@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.telecom.Call
 import android.telecom.CallScreeningService
+import com.brian.dialbuddy.data.AppStorage
 import com.brian.dialbuddy.domain.useUnknownRingtone
 
 class IncomingScreen : CallScreeningService() {
@@ -32,7 +33,12 @@ class IncomingScreen : CallScreeningService() {
         } else {
             false
         }
-        val silence = useUnknownRingtone(incoming, number, contactsAllowed, inContacts)
+        val areaCodes = try {
+            AppStorage(this).readAreaCodes().toSet()
+        } catch (_: Exception) {
+            emptySet()
+        }
+        val silence = useUnknownRingtone(incoming, number, contactsAllowed, inContacts, areaCodes)
         if (silence) UnknownRinger.expect(number) else UnknownRinger.forget(number)
         return Outcome(
             response = CallResponse.Builder()

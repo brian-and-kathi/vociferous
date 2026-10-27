@@ -17,8 +17,15 @@ data class Notice(
     val iconName: String? = null,
 )
 
-fun recordPosted(current: List<Notice>, incoming: Notice, ownPackage: String = OWN_PACKAGE): List<Notice> {
-    if (incoming.packageName == ownPackage || incoming.key.isBlank()) return current
+fun recordPosted(
+    current: List<Notice>,
+    incoming: Notice,
+    ownPackage: String = OWN_PACKAGE,
+    ignored: Set<String> = emptySet(),
+): List<Notice> {
+    if (incoming.packageName == ownPackage || incoming.key.isBlank() || incoming.packageName in ignored) {
+        return current
+    }
     val previous = current.find { it.key == incoming.key }
     val next = if (previous == null) {
         incoming.copy(dismissed = false)
@@ -47,18 +54,51 @@ fun syncNotices(
     live: List<Notice>,
     now: Long,
     ownPackage: String = OWN_PACKAGE,
+    ignored: Set<String> = emptySet(),
 ): List<Notice> {
+    val kept = if (ignored.isEmpty()) current else current.filter { it.packageName !in ignored }
     val liveKeys = live.map { it.key }.toSet()
-    var next = current
-    for (existing in current) {
+    var next = kept
+    for (existing in kept) {
         if (!existing.dismissed && existing.key !in liveKeys) {
             next = recordDismissed(next, existing.key, now)
         }
     }
     for (notice in live) {
-        next = recordPosted(next, notice, ownPackage)
+        next = recordPosted(next, notice, ownPackage, ignored)
     }
     return next
+}
+
+data class IgnoredSender(
+    val packageName: String,
+    val appName: String,
+)
+
+fun withIgnored(current: List<IgnoredSender>, packageName: String, appName: String): List<IgnoredSender> {
+    if (packageName.isBlank()) return current
+    val name = appName.ifBlank { packageName }
+    return current.filter { it.packageName != packageName } + IgnoredSender(packageName, name)
+}
+
+fun withoutIgnored(current: List<IgnoredSender>, packageName: String): List<IgnoredSender> {
+    return current.filter { it.packageName != packageName }
+}
+
+fun encodeIgnored(senders: List<IgnoredSender>): String {
+    return senders.joinToString("\n") { sender ->
+        listOf(sender.packageName, sender.appName).joinToString(FIELD.toString()) { escapeField(it) }
+    }
+}
+
+fun decodeIgnored(raw: String): List<IgnoredSender> {
+    if (raw.isBlank()) return emptyList()
+    return raw.lineSequence().mapNotNull { line ->
+        if (line.isEmpty()) return@mapNotNull null
+        val parts = splitFields(line)
+        if (parts.size != 2 || parts[0].isBlank()) return@mapNotNull null
+        IgnoredSender(parts[0], parts[1].ifBlank { parts[0] })
+    }.toList()
 }
 
 data class NoticeApp(

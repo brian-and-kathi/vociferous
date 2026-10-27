@@ -20,6 +20,7 @@ import com.brian.dialbuddy.data.AppStorage
 import com.brian.dialbuddy.data.NoticeLog
 import com.brian.dialbuddy.domain.CallRecord
 import com.brian.dialbuddy.domain.normalizeAreaCode
+import com.brian.dialbuddy.domain.IgnoredSender
 import com.brian.dialbuddy.domain.Notice
 import com.brian.dialbuddy.domain.NoticeApp
 import com.brian.dialbuddy.domain.DeletionCounts
@@ -126,6 +127,7 @@ data class DialUiState(
     val historyPhotos: Map<String, String>? = null,
     val historyAccess: HistoryAccess = HistoryAccess.Loading,
     val notices: List<Notice> = emptyList(),
+    val ignoredSenders: List<IgnoredSender> = emptyList(),
     val noticeAccess: Boolean = false,
     val playingVoicemailId: Long? = null,
     val playbackFraction: Float = 0f,
@@ -192,6 +194,11 @@ class DialViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             NoticeLog.records.collect { notices ->
                 _state.update { it.copy(notices = notices) }
+            }
+        }
+        viewModelScope.launch {
+            NoticeLog.ignored.collect { ignored ->
+                _state.update { it.copy(ignoredSenders = ignored) }
             }
         }
         viewModelScope.launch {
@@ -658,6 +665,17 @@ class DialViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissAllNotices() {
         NoticeLog.remove(_state.value.notices.map { it.key }.toSet())
+    }
+
+    fun ignoreSender(packageName: String) {
+        val name = _state.value.notices.firstOrNull { it.packageName == packageName }?.appName
+            ?: packageName
+        NoticeLog.ignore(packageName, name)
+    }
+
+    fun restoreSender(packageName: String) {
+        NoticeLog.restore(packageName)
+        NoticeListener.resync()
     }
 
     fun openNotice(key: String) {

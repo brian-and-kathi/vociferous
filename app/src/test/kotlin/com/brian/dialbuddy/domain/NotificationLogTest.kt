@@ -116,6 +116,32 @@ class NotificationLogTest {
     }
 
     @Test
+    fun ignoredSendersAreNotLoggedAndCanBeAllowedAgain() {
+        val ignored = withIgnored(emptyList(), "com.petlibro", "Petlibro")
+        assertEquals(listOf("com.petlibro"), ignored.map { it.packageName })
+        assertEquals("Petlibro", ignored.single().appName)
+        val renamed = withIgnored(ignored, "com.petlibro", "Pet Libro")
+        assertEquals(listOf("Pet Libro"), renamed.map { it.appName })
+        assertEquals(emptyList<IgnoredSender>(), withoutIgnored(renamed, "com.petlibro"))
+        assertEquals(renamed, decodeIgnored(encodeIgnored(renamed)))
+
+        val packages = renamed.map { it.packageName }.toSet()
+        val current = listOf(notice("old", updatedAt = 1, packageName = "com.petlibro", appName = "Petlibro"))
+        assertEquals(current, recordPosted(current, notice("new", updatedAt = 2, packageName = "com.petlibro"), ignored = packages))
+        val synced = syncNotices(
+            current,
+            listOf(notice("live", updatedAt = 3, packageName = "com.petlibro"), notice("other", updatedAt = 4, packageName = "com.other")),
+            now = 5,
+            ignored = packages,
+        )
+        assertEquals(listOf("other"), synced.map { it.key })
+        assertEquals(
+            listOf("other"),
+            syncNotices(synced, emptyList(), now = 6, ignored = emptySet()).map { it.key },
+        )
+    }
+
+    @Test
     fun updateKeepsThePreviousAvatarWhenTheNewOneIsMissing() {
         val first = recordPosted(emptyList(), notice("a", updatedAt = 1, iconName = "a.png"))
         val kept = recordPosted(first, notice("a", updatedAt = 2))

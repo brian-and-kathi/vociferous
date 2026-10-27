@@ -6,7 +6,9 @@ import android.database.ContentObserver
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
+import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
@@ -30,6 +32,10 @@ class VoicemailPlayer(
         .setUsage(AudioAttributes.USAGE_MEDIA)
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
         .build()
+    private val cueAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .build()
 
     private var speakerOn = speakerOn
     private var generation = 0
@@ -38,6 +44,8 @@ class VoicemailPlayer(
     private var observer: ContentObserver? = null
     private var poll: Runnable? = null
     private var clock: Runnable? = null
+    private var cueTask: Runnable? = null
+    private var cueTrack: AudioTrack? = null
     private var previousMode: Int? = null
     private var preparing = false
 
@@ -81,6 +89,7 @@ class VoicemailPlayer(
         preparing = false
         clearWatch()
         stopClock()
+        stopCue()
         releasePlayer()
         restoreRoute()
         abandonFocus()
@@ -110,11 +119,26 @@ class VoicemailPlayer(
         mp.setOnPreparedListener { prepared ->
             if (token != generation) return@setOnPreparedListener
             applyRoute(prepared)
-            prepared.start()
-            startClock(token)
+            playCue(START_HZ, START_MS) {
+                if (token != generation) return@playCue
+                try {
+                    prepared.start()
+                    startClock(token)
+                } catch (_: IllegalStateException) {
+                    fail(app.getString(com.brian.dialbuddy.R.string.play_failed))
+                }
+            }
         }
         mp.setOnCompletionListener {
-            if (token == generation) stop()
+            if (token != generation) return@setOnCompletionListener
+            stopClock()
+            try {
+                mp.stop()
+            } catch (_: IllegalStateException) {
+            }
+            playCue(END_HZ, END_MS) {
+                if (token == generation) stop()
+            }
         }
         mp.setOnErrorListener { _, _, _ ->
             if (token == generation) fail(app.getString(com.brian.dialbuddy.R.string.play_failed))
@@ -187,15 +211,94 @@ class VoicemailPlayer(
     }
 
     private fun applyRoute(mp: MediaPlayer) {
+        engageRoute()
+        outputDevice()?.let { mp.setPreferredDevice(it) }
+    }
+
+    private fun engageRoute() {
         if (previousMode == null) previousMode = audio.mode
         audio.mode = AudioManager.MODE_IN_COMMUNICATION
+        outputDevice()?.let { audio.setCommunicationDevice(it) }
+    }
+
+    private fun outputDevice(): AudioDeviceInfo? {
         val type = if (speakerOn) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
-        val device = audio.availableCommunicationDevices.firstOrNull { it.type == type }
+        return audio.availableCommunicationDevices.firstOrNull { it.type == type }
             ?: audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.type == type }
-        if (device != null) {
-            audio.setCommunicationDevice(device)
-            mp.setPreferredDevice(device)
+    }
+
+    private fun playCue(frequencyHz: Double, durationMs: Int, then: () -> Unit) {
+        stopCue()
+        engageRoute()
+        val samples = cueSamples(frequencyHz, durationMs)
+        val track = try {
+            AudioTrack.Builder()
+                .setAudioAttributes(cueAttributes)
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(CUE_RATE)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build(),
+                )
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .setBufferSizeInBytes(samples.size * 2)
+                .build()
+        } catch (_: IllegalArgumentException) {
+            main.post(then)
+            return
         }
+        outputDevice()?.let { track.preferredDevice = it }
+        track.write(samples, 0, samples.size)
+        cueTrack = track
+        try {
+            track.play()
+        } catch (_: IllegalStateException) {
+            releaseCueTrack()
+            main.post(then)
+            return
+        }
+        val task = Runnable {
+            cueTask = null
+            releaseCueTrack()
+            then()
+        }
+        cueTask = task
+        main.postDelayed(task, durationMs.toLong() + CUE_GAP_MS)
+    }
+
+    private fun stopCue() {
+        cueTask?.let { main.removeCallbacks(it) }
+        cueTask = null
+        releaseCueTrack()
+    }
+
+    private fun releaseCueTrack() {
+        cueTrack?.let { track ->
+            try {
+                track.pause()
+                track.flush()
+            } catch (_: IllegalStateException) {
+            }
+            track.release()
+        }
+        cueTrack = null
+    }
+
+    private fun cueSamples(frequencyHz: Double, durationMs: Int): ShortArray {
+        val count = CUE_RATE * durationMs / 1000
+        val samples = ShortArray(count)
+        val edge = (CUE_RATE * 0.012).toInt().coerceAtLeast(1)
+        for (i in 0 until count) {
+            val envelope = when {
+                i < edge -> i.toFloat() / edge
+                i > count - edge -> (count - i).toFloat() / edge
+                else -> 1f
+            }
+            val wave = kotlin.math.sin(2.0 * Math.PI * frequencyHz * i / CUE_RATE)
+            samples[i] = (wave * envelope * 0.55 * Short.MAX_VALUE).toInt().toShort()
+        }
+        return samples
     }
 
     private fun restoreRoute() {
@@ -284,5 +387,11 @@ class VoicemailPlayer(
         const val DOWNLOAD_TIMEOUT_MS = 25_000L
         const val POLL_MS = 1_000L
         const val CLOCK_MS = 100L
+        const val CUE_RATE = 16000
+        const val CUE_GAP_MS = 40L
+        const val START_HZ = 880.0
+        const val END_HZ = 440.0
+        const val START_MS = 180
+        const val END_MS = 280
     }
 }

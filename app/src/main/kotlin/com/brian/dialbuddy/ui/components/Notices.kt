@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -22,6 +23,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -49,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brian.dialbuddy.R
 import com.brian.dialbuddy.data.NoticeLog
+import com.brian.dialbuddy.domain.IgnoredSender
 import com.brian.dialbuddy.domain.Notice
 import com.brian.dialbuddy.domain.NoticeApp
 import com.brian.dialbuddy.ui.theme.Danger
@@ -70,6 +73,8 @@ fun NoticesMenu(
     onSystemHistory: () -> Unit,
     onDeleteAll: () -> Unit,
     onPick: (String) -> Unit,
+    ignored: List<IgnoredSender> = emptyList(),
+    onRestore: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -134,6 +139,29 @@ fun NoticesMenu(
                     colors = MenuDefaults.itemColors(textColor = Danger),
                 )
             }
+            if (ignored.isNotEmpty()) {
+                HorizontalDivider(color = NoticeStroke)
+                Text(
+                    stringResource(R.string.notices_ignored),
+                    color = NoticeMuted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+                ignored.forEach { sender ->
+                    DropdownMenuItem(
+                        text = { Text(sender.appName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        trailingIcon = {
+                            Text(stringResource(R.string.notices_allow_again), color = NoticeBand)
+                        },
+                        onClick = {
+                            open = false
+                            onRestore(sender.packageName)
+                        },
+                        colors = itemColors,
+                    )
+                }
+            }
         }
     }
 }
@@ -147,8 +175,28 @@ fun NoticesPage(
     onDismiss: (String) -> Unit,
     onDismissAll: () -> Unit,
     onAllow: () -> Unit,
+    appName: String? = null,
+    onIgnore: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    var confirmIgnore by remember { mutableStateOf(false) }
+    val sender = appName?.takeIf { it.isNotBlank() }
+    if (confirmIgnore && sender != null) {
+        AlertDialog(
+            onDismissRequest = { confirmIgnore = false },
+            title = { Text(stringResource(R.string.notices_ignore_title, sender)) },
+            text = { Text(stringResource(R.string.notices_ignore_message, sender)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmIgnore = false
+                    onIgnore()
+                }) { Text(stringResource(R.string.notices_ignore_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmIgnore = false }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
     Column(modifier) {
         if (!access) {
             Text(
@@ -192,6 +240,14 @@ fun NoticesPage(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = CardInset).padding(top = 8.dp),
             ) {
                 Text(pluralStringResource(R.plurals.notices_dismiss_app, rows.size, rows.size))
+            }
+            if (sender != null) {
+                TextButton(
+                    onClick = { confirmIgnore = true },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = CardInset),
+                ) {
+                    Text(stringResource(R.string.notices_ignore, sender), color = Danger)
+                }
             }
         }
     }

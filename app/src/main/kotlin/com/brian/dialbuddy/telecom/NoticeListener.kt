@@ -44,5 +44,10 @@ class NoticeListener : NotificationListenerService() {
             } catch (_: SecurityException) {
             }
         }
+
+        fun resync() {
+            val service = connected ?: return
+            NoticeLog.sync(service, service.activeNotifications?.toList().orEmpty())
+        }
     }
 }

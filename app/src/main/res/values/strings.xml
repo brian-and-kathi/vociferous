@@ -28,6 +28,12 @@
     <string name="notices_system_history">System history</string>
     <string name="notices_menu">Apps with notices</string>
     <string name="notices_delete_all">Delete all</string>
+    <string name="notices_ignore">Never log %1$s</string>
+    <string name="notices_ignore_confirm">Stop logging</string>
+    <string name="notices_ignore_title">Stop logging %1$s?</string>
+    <string name="notices_ignore_message">Notices from %1$s will not be kept. You can allow them again from the notices menu.</string>
+    <string name="notices_ignored">Ignored</string>
+    <string name="notices_allow_again">Allow</string>
     <string name="notices_history_unavailable">Notification history is not available on this phone.</string>
     <string name="notices_access_unavailable">Notification access settings could not be opened.</string>
     <string name="history_recognized">Recognized</string>

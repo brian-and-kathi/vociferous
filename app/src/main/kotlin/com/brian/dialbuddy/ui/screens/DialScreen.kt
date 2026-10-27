@@ -336,6 +336,8 @@ fun DialScreen(
                     apps = noticeApps,
                     onSystemHistory = viewModel::openNotificationHistory,
                     onDeleteAll = viewModel::dismissAllNotices,
+                    ignored = state.ignoredSenders,
+                    onRestore = viewModel::restoreSender,
                     onPick = { packageName ->
                         val index = noticeApps.indexOfFirst { it.packageName == packageName }
                         if (index >= 0) {
@@ -374,6 +376,8 @@ fun DialScreen(
                         onDismiss = viewModel::dismissNotice,
                         onDismissAll = { app?.let { viewModel.dismissApp(it.packageName) } },
                         onAllow = viewModel::requestNotificationAccess,
+                        appName = app?.appName,
+                        onIgnore = { app?.let { viewModel.ignoreSender(it.packageName) } },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

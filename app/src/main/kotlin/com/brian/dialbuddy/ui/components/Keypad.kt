@@ -26,8 +26,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -48,6 +50,7 @@ import com.brian.dialbuddy.ui.theme.DigitStroke
 import com.brian.dialbuddy.ui.theme.DigitTint
 import com.brian.dialbuddy.ui.theme.Forest
 import com.brian.dialbuddy.ui.theme.InkMuted
+import kotlinx.coroutines.awaitCancellation
 
 private data class KeyFace(
     val digit: String,
@@ -70,6 +73,10 @@ private val keys = listOf(
     KeyFace("0", "+", "0. Hold for plus", longPlus = true),
     KeyFace("#", "", "pound"),
 )
+
+private val toneKeys = keys.map { face ->
+    if (face.digit == "0") face.copy(letters = "", description = "0", longPlus = false) else face
+}
 
 private val keySize = 62.dp
 private val keyGap = 14.dp
@@ -107,38 +114,7 @@ fun KeypadPane(
                 DialContact(contactName, contactPhoto, stroke)
             }
         }
-        Box(
-            modifier = Modifier
-                .width(clusterWidth)
-                .height(52.dp)
-                .border(1.dp, stroke, RoundedCornerShape(8.dp))
-                .padding(horizontal = 12.dp),
-        ) {
-            Text(
-                text = if (digits.isEmpty()) {
-                    buildAnnotatedString { append(hint) }
-                } else {
-                    dialedText(digits)
-                },
-                color = if (digits.isEmpty()) InkMuted else Digit,
-                fontWeight = if (digits.isEmpty()) FontWeight.Normal else FontWeight.Medium,
-                fontSize = if (digits.isEmpty()) 14.sp else 26.sp,
-                letterSpacing = if (digits.isEmpty()) 0.sp else 2.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(end = 28.dp),
-            )
-            Text(
-                text = backspaceLabel,
-                color = stroke,
-                fontSize = 16.sp,
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .clickable(onClick = onBackspace)
-                    .padding(4.dp),
-            )
-        }
+        DigitWindow(digits, hint, backspaceLabel, stroke, onBackspace)
         Column(
             modifier = Modifier.padding(top = 22.dp),
             verticalArrangement = Arrangement.spacedBy(keyGap),
@@ -175,6 +151,87 @@ fun KeypadPane(
                 fontSize = 16.sp,
             )
         }
+    }
+}
+
+@Composable
+fun ToneKeypad(
+    digits: String,
+    hint: String,
+    backspaceLabel: String,
+    onDown: (String) -> Unit,
+    onUp: () -> Unit,
+    onBackspace: () -> Unit,
+    stroke: Color = DigitStroke,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.weight(1f).fillMaxWidth())
+        DigitWindow(digits, hint, backspaceLabel, stroke, onBackspace)
+        Column(
+            modifier = Modifier.padding(top = 22.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(keyGap),
+        ) {
+            toneKeys.chunked(3).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(keyGap)) {
+                    row.forEach { face ->
+                        WireKey(
+                            face = face,
+                            stroke = stroke,
+                            onClick = {},
+                            onLongClick = null,
+                            onDown = { onDown(face.digit) },
+                            onUp = onUp,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DigitWindow(
+    digits: String,
+    hint: String,
+    backspaceLabel: String,
+    stroke: Color,
+    onBackspace: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .width(clusterWidth)
+            .height(52.dp)
+            .border(1.dp, stroke, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp),
+    ) {
+        Text(
+            text = if (digits.isEmpty()) {
+                buildAnnotatedString { append(hint) }
+            } else {
+                dialedText(digits)
+            },
+            color = if (digits.isEmpty()) InkMuted else Digit,
+            fontWeight = if (digits.isEmpty()) FontWeight.Normal else FontWeight.Medium,
+            fontSize = if (digits.isEmpty()) 14.sp else 26.sp,
+            letterSpacing = if (digits.isEmpty()) 0.sp else 2.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(end = 28.dp),
+        )
+        Text(
+            text = backspaceLabel,
+            color = stroke,
+            fontSize = 16.sp,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .clickable(onClick = onBackspace)
+                .padding(4.dp),
+        )
     }
 }
 
@@ -223,10 +280,25 @@ private fun WireKey(
     stroke: Color,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
+    onDown: (() -> Unit)? = null,
+    onUp: (() -> Unit)? = null,
 ) {
     val symbol = face.digit == "*" || face.digit == "#"
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
+    val down = rememberUpdatedState(onDown)
+    val up = rememberUpdatedState(onUp)
+    if (onDown != null) {
+        LaunchedEffect(pressed) {
+            if (!pressed) return@LaunchedEffect
+            down.value?.invoke()
+            try {
+                awaitCancellation()
+            } finally {
+                up.value?.invoke()
+            }
+        }
+    }
     val press = if (onLongClick != null) {
         Modifier.combinedClickable(
             interactionSource = interaction,

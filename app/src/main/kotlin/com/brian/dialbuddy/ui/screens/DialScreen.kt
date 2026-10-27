@@ -231,6 +231,7 @@ fun DialScreen(
                     seed = page,
                     title = when {
                         page == 1 && callActive -> stringResource(R.string.state_call)
+                        page == 0 && callActive && !areaCodesOpen -> stringResource(R.string.tone_keypad)
                         page == 0 && areaCodesOpen -> stringResource(R.string.area_codes)
                         else -> null
                     },
@@ -246,6 +247,8 @@ fun DialScreen(
                             onClose = { areaCodesOpen = false },
                             modifier = Modifier.fillMaxSize(),
                         )
+                    } else if (page == 0 && callActive) {
+                        CallKeypad(inCall, Modifier.fillMaxSize())
                     } else if (page == 0 || !callActive) {
                         KeypadPane(
                             digits = state.digits,

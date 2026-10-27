@@ -100,6 +100,18 @@ object Calls {
         service?.setAudioRoute(route)
     }
 
+    fun startTone(key: String, symbol: String): Boolean {
+        val digit = symbol.singleOrNull()?.takeIf { it in DTMF } ?: return false
+        val call = find(key) ?: return false
+        if (call.details.state != Call.STATE_ACTIVE) return false
+        return runCatching { call.playDtmfTone(digit) }.isSuccess
+    }
+
+    fun stopTone(key: String) {
+        val call = find(key) ?: return
+        runCatching { call.stopDtmfTone() }
+    }
+
     private fun notifyChanged() {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             publish()
@@ -129,3 +141,5 @@ object Calls {
     private fun find(key: String): Call? =
         current.keys.firstOrNull { System.identityHashCode(it).toString() == key }
 }
+
+private const val DTMF = "0123456789*#"

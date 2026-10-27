@@ -94,6 +94,8 @@
     <string name="allow_contacts">Show contact names</string>
     <string name="role_unavailable">This phone does not let apps take the Phone role.</string>
     <string name="keypad_hint">number</string>
+    <string name="tone_keypad">Keypad</string>
+    <string name="tone_hint">tones</string>
     <string name="backspace">&lt;X</string>
     <string name="backspace_description">Delete digit</string>
     <string name="call">Call</string>

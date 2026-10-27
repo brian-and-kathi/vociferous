@@ -1,6 +1,5 @@
 package com.brian.dialbuddy.telecom
 
-import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
@@ -64,14 +63,16 @@ class CallService : InCallService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val label = number?.takeIf { it.isNotBlank() } ?: getString(R.string.unknown_caller)
-        val notification = Notification.Builder(this, DialBuddyApp.CALL_CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, DialBuddyApp.CALL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_call)
             .setContentTitle(getString(R.string.incoming_call_title))
             .setContentText(label)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setOngoing(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
             .setContentIntent(open)
-            .setFullScreenIntent(open, true)
+            .setFullScreenIntent(open, false)
             .build()
         getSystemService(NotificationManager::class.java).notify(CALL_NOTIFICATION_ID, notification)
     }

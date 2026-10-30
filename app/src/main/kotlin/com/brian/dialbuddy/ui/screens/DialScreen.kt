@@ -59,7 +59,9 @@ import androidx.compose.ui.unit.sp
 import com.brian.dialbuddy.R
 import com.brian.dialbuddy.data.ReleaseLookup
 import com.brian.dialbuddy.domain.DeletionCounts
+import com.brian.dialbuddy.domain.callPageAfterReorder
 import com.brian.dialbuddy.domain.isNewerRelease
+import com.brian.dialbuddy.domain.orderedCallCards
 import com.brian.dialbuddy.domain.presentVoicemails
 import com.brian.dialbuddy.telecom.Calls
 import com.brian.dialbuddy.ui.components.AreaCodesPage
@@ -114,10 +116,11 @@ fun DialScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val inCall by Calls.state.collectAsState()
-    val callActive = inCall.calls.isNotEmpty()
+    val calls = orderedCallCards(inCall.calls) { it.isIncoming() }
     var section by remember { mutableIntStateOf(PHONE) }
-    var wasInCall by remember { mutableStateOf(false) }
-    val phonePager = rememberPagerState(initialPage = 0) { if (callActive) 2 else 1 }
+    var seenCallKeys by remember { mutableStateOf(emptySet<String>()) }
+    var settledCallKey by remember { mutableStateOf<String?>(null) }
+    val phonePager = rememberPagerState(initialPage = 0) { 1 + calls.size }
     val mailCards = visibleMailboxTabs(viewModel.knownCount(state), viewModel.unknownCount(state))
     val mailPager = rememberPagerState(initialPage = 0) { mailCards.size }
     val historyPager = rememberPagerState(initialPage = 0) { 2 }
@@ -140,17 +143,24 @@ fun DialScreen(
             phonePager.scrollToPage(0)
         }
     }
-    LaunchedEffect(callActive) {
-        if (callActive && !wasInCall) {
+    LaunchedEffect(phonePager.settledPage) {
+        settledCallKey = calls.getOrNull(phonePager.settledPage - 1)?.key
+    }
+    LaunchedEffect(calls) {
+        val keys = calls.map { it.key }
+        val added = keys.filter { it !in seenCallKeys }
+        seenCallKeys = keys.toSet()
+        if (added.isNotEmpty()) {
             section = PHONE
             areaCodesOpen = false
-            phonePager.animateScrollToPage(1)
+            val target = keys.indexOf(added.last()) + 1
+            if (phonePager.currentPage != target) phonePager.animateScrollToPage(target)
+        } else {
+            val target = callPageAfterReorder(keys, settledCallKey, phonePager.currentPage)
+            if (phonePager.currentPage != target) phonePager.scrollToPage(target)
         }
-        if (!callActive && phonePager.currentPage != 0) {
-            phonePager.scrollToPage(0)
-        }
-        wasInCall = callActive
     }
+    WatchIncomingSilence(phonePager.settledPage, calls) { page -> page - 1 }
     LaunchedEffect(mailPager.settledPage, mailCards) {
         mailCards.getOrNull(mailPager.settledPage)?.let { shownMailCard = it }
     }
@@ -216,7 +226,7 @@ fun DialScreen(
                 )
                 PageDots(
                     page = phonePager.currentPage,
-                    count = if (callActive) 2 else 1,
+                    count = 1 + calls.size,
                     color = PhoneBand,
                     modifier = Modifier.weight(1f),
                 )
@@ -227,13 +237,14 @@ fun DialScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 pageSpacing = 20.dp,
             ) { page ->
+                val line = calls.getOrNull(page - 1)
                 PageCard(
                     seed = page,
                     title = when {
-                        page == 1 && callActive -> stringResource(R.string.state_call)
-                        page == 0 && callActive && !areaCodesOpen -> stringResource(R.string.tone_keypad)
                         page == 0 && areaCodesOpen -> stringResource(R.string.area_codes)
-                        else -> null
+                        line == null -> null
+                        line.isIncoming() -> stringResource(R.string.incoming_call)
+                        else -> stringResource(R.string.active_call)
                     },
                     band = PhoneBand,
                     ink = PhoneInk,
@@ -247,9 +258,7 @@ fun DialScreen(
                             onClose = { areaCodesOpen = false },
                             modifier = Modifier.fillMaxSize(),
                         )
-                    } else if (page == 0 && callActive) {
-                        CallKeypad(inCall, Modifier.fillMaxSize())
-                    } else if (page == 0 || !callActive) {
+                    } else if (page == 0 || line == null) {
                         KeypadPane(
                             digits = state.digits,
                             contactName = state.dialContactName,
@@ -268,7 +277,7 @@ fun DialScreen(
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
-                        InCallPane(inCall, Modifier.fillMaxSize())
+                        CallCard(line, inCall, Modifier.fillMaxSize())
                     }
                 }
             }

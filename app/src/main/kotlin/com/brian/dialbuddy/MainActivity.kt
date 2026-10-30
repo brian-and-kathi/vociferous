@@ -27,6 +27,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.brian.dialbuddy.telecom.Calls
 import com.brian.dialbuddy.telecom.ContactLookup
 import com.brian.dialbuddy.telecom.OutgoingAllowance
 import com.brian.dialbuddy.ui.screens.DialScreen
@@ -73,6 +74,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        Calls.mainVisible = true
         if (skipRolePrompt) {
             skipRolePrompt = false
             return
@@ -82,6 +84,11 @@ class MainActivity : ComponentActivity() {
         } else {
             requestNotificationPermission()
         }
+    }
+
+    override fun onStop() {
+        Calls.mainVisible = false
+        super.onStop()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

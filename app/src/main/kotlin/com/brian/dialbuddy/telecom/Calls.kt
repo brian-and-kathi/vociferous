@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import android.telecom.Call
 import android.telecom.CallAudioState
+import android.telecom.TelecomManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,7 +13,10 @@ data class CallLine(
     val key: String,
     val number: String,
     val state: Int,
-)
+) {
+    fun isIncoming(): Boolean =
+        state == Call.STATE_RINGING || state == Call.STATE_SIMULATED_RINGING
+}
 
 data class InCallState(
     val calls: List<CallLine> = emptyList(),
@@ -28,7 +32,10 @@ object Calls {
     private val main = Handler(Looper.getMainLooper())
     private val current = LinkedHashMap<Call, Unit>()
     private val callback = object : Call.Callback() {
-        override fun onStateChanged(call: Call, state: Int) = notifyChanged()
+        override fun onStateChanged(call: Call, state: Int) {
+            if (state == Call.STATE_DISCONNECTED) promoteHeld()
+            notifyChanged()
+        }
 
         override fun onDetailsChanged(call: Call, details: Call.Details) = notifyChanged()
     }
@@ -37,6 +44,7 @@ object Calls {
     val state: StateFlow<InCallState> = _state.asStateFlow()
 
     var service: CallService? = null
+    var mainVisible: Boolean = false
     private var audioRoute: Int = CallAudioState.ROUTE_EARPIECE
     private var supportedRoutes: Int = 0
     private var muted: Boolean = false
@@ -51,6 +59,7 @@ object Calls {
     fun remove(call: Call) {
         call.unregisterCallback(callback)
         current.remove(call)
+        promoteHeld()
         notifyChanged()
     }
 
@@ -62,7 +71,19 @@ object Calls {
     }
 
     fun answer(key: String) {
-        find(key)?.answer(0)
+        val target = find(key) ?: return
+        current.keys.forEach { call ->
+            if (call !== target && call.details.state == Call.STATE_ACTIVE) call.hold()
+        }
+        target.answer(0)
+    }
+
+    fun silenceRing(key: String, stopAudible: Boolean) {
+        val number = currentNumber(key) ?: return
+        val noneLeft = UnknownRinger.silenceNumber(number)
+        if (!stopAudible || !noneLeft) return
+        val telecom = service?.getSystemService(TelecomManager::class.java) ?: return
+        runCatching { telecom.silenceRinger() }
     }
 
     fun decline(key: String) {
@@ -140,6 +161,25 @@ object Calls {
 
     private fun find(key: String): Call? =
         current.keys.firstOrNull { System.identityHashCode(it).toString() == key }
+
+    private fun currentNumber(key: String): String? {
+        find(key)?.details?.handle?.schemeSpecificPart?.let { return it }
+        return _state.value.calls.firstOrNull { it.key == key }?.number
+    }
+
+    private fun promoteHeld() {
+        val live = current.keys.filter { call ->
+            val state = call.details.state
+            state != Call.STATE_DISCONNECTED && state != Call.STATE_DISCONNECTING
+        }
+        val busy = live.any { call ->
+            val state = call.details.state
+            state == Call.STATE_ACTIVE || state == Call.STATE_DIALING || state == Call.STATE_CONNECTING
+        }
+        if (busy) return
+        val held = live.filter { it.details.state == Call.STATE_HOLDING }
+        if (held.size == 1) held.first().unhold()
+    }
 }
 
 private const val DTMF = "0123456789*#"

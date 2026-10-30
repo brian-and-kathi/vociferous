@@ -116,7 +116,9 @@
     <string name="contact_missing">This number is not saved in contacts.</string>
     <string name="unknown_mark">?</string>
     <string name="answer">Answer</string>
-    <string name="decline">Decline</string>
+    <string name="decline">Reject</string>
+    <string name="incoming_call">Incoming call</string>
+    <string name="active_call">Active call</string>
     <string name="mute">Mute</string>
     <string name="unmute">Unmute</string>
     <string name="speaker">Speaker</string>

@@ -32,8 +32,7 @@ class CallService : InCallService() {
 
     override fun onCallAdded(call: Call) {
         Calls.add(call)
-        val open = inCallIntent()
-        startActivity(open)
+        if (!Calls.mainVisible) startActivity(inCallIntent())
         showNotificationText(call.details.handle?.schemeSpecificPart)
     }
 

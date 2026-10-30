@@ -26,7 +26,7 @@ object UnknownRinger {
     private var ringtone: Ringtone? = null
     private var vibrator: Vibrator? = null
     private var playing = false
-    private var silenced = false
+    private val silencedNumbers = LinkedHashSet<String>()
 
     fun expect(number: String) {
         armed += key(number)
@@ -52,13 +52,14 @@ object UnknownRinger {
         armed.removeAll(gone.toSet())
         seen.removeAll(gone.toSet())
 
-        val ringing = calls.any { isRinging(it.state) && key(it.number) in armed }
-        if (!ringing) {
-            silenced = false
+        val ringing = calls.filter { isRinging(it.state) }.map { key(it.number) }.toSet()
+        if (ringing.isEmpty()) {
+            silencedNumbers.clear()
             stopPlayback()
             return
         }
-        if (silenced) {
+        silencedNumbers.retainAll(ringing)
+        if (!audible(calls)) {
             stopPlayback()
             return
         }
@@ -66,16 +67,26 @@ object UnknownRinger {
     }
 
     fun silence() {
-        silenced = true
+        Calls.state.value.calls.filter { isRinging(it.state) }.forEach { silencedNumbers += key(it.number) }
         stopPlayback()
     }
 
+    fun silenceNumber(number: String): Boolean {
+        silencedNumbers += key(number)
+        val calls = Calls.state.value.calls
+        if (!audible(calls)) stopPlayback()
+        return calls.none { isRinging(it.state) && key(it.number) !in silencedNumbers }
+    }
+
     fun stop() {
-        silenced = false
+        silencedNumbers.clear()
         armed.clear()
         seen.clear()
         stopPlayback()
     }
+
+    private fun audible(calls: List<CallLine>): Boolean =
+        calls.any { isRinging(it.state) && key(it.number) in armed && key(it.number) !in silencedNumbers }
 
     private fun start(context: Context) {
         if (playing) return

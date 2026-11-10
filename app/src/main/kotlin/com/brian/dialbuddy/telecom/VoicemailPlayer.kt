@@ -14,6 +14,10 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.VoicemailContract
+import android.util.Log
+import com.brian.dialbuddy.domain.VoicemailPlay
+import com.brian.dialbuddy.domain.hasAudibleAudio
+import com.brian.dialbuddy.domain.voicemailPlay
 import java.util.concurrent.Executors
 
 class VoicemailPlayer(
@@ -23,13 +27,17 @@ class VoicemailPlayer(
     private val onPlaying: (Long?) -> Unit,
     private val onProgress: (Float) -> Unit,
     private val onError: (String) -> Unit,
+    private val onSilent: (Long) -> Unit,
 ) {
     private val app = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private val audio = app.getSystemService(AudioManager::class.java)
+    private val probe = VoicemailAudioProbe(app)
+    // MODE_IN_COMMUNICATION ducks USAGE_MEDIA, so the message shares the
+    // voice-communication stream that the earpiece and speaker route actually switch.
     private val speech = AudioAttributes.Builder()
-        .setUsage(AudioAttributes.USAGE_MEDIA)
+        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
         .build()
     private val cueAttributes = AudioAttributes.Builder()
@@ -54,8 +62,7 @@ class VoicemailPlayer(
             onError(app.getString(com.brian.dialbuddy.R.string.play_during_call))
             return
         }
-        halt(clearPlaying = false)
-        onPlaying(id)
+        halt(clearPlaying = true)
         val token = generation
         io.execute {
             val media = try {
@@ -63,13 +70,22 @@ class VoicemailPlayer(
             } catch (_: VoicemailAccessDenied) {
                 null
             }
+            val level = if (media != null && media.hasContent) {
+                probe.measure(store.itemUri(id, media.sourcePackage))
+            } else {
+                null
+            }
             main.post {
                 if (token != generation) return@post
-                when {
-                    media == null -> fail(app.getString(com.brian.dialbuddy.R.string.play_failed))
-                    media.hasContent -> startPlayer(id, media.sourcePackage, token)
-                    requestDownload(id, media.sourcePackage) -> watch(id, media.sourcePackage, token)
-                    else -> fail(app.getString(com.brian.dialbuddy.R.string.download_failed))
+                val action = voicemailPlay(media?.hasContent, level?.hasAudibleAudio())
+                Log.i(TAG, "play id=$id hasContent=${media?.hasContent} audible=${level?.hasAudibleAudio()} action=$action")
+                when (action) {
+                    VoicemailPlay.Unavailable -> fail(app.getString(com.brian.dialbuddy.R.string.play_failed))
+                    VoicemailPlay.Silent -> onSilent(id)
+                    VoicemailPlay.Play -> {
+                        onPlaying(id)
+                        startPlayer(id, media?.sourcePackage, token)
+                    }
                 }
             }
         }
@@ -122,7 +138,12 @@ class VoicemailPlayer(
             playCue(START_HZ, START_MS) {
                 if (token != generation) return@playCue
                 try {
+                    applyRoute(prepared)
                     prepared.start()
+                    Log.i(
+                        TAG,
+                        "started id=$id session=${prepared.audioSessionId} durationMs=${prepared.duration} playing=${prepared.isPlaying}",
+                    )
                     startClock(token)
                 } catch (_: IllegalStateException) {
                     fail(app.getString(com.brian.dialbuddy.R.string.play_failed))
@@ -202,8 +223,14 @@ class VoicemailPlayer(
             } catch (_: Exception) {
                 false
             }
+            val level = if (ready) probe.measure(store.itemUri(id, sourcePackage)) else null
             main.post {
                 if (token != generation || preparing || !ready) return@post
+                if (level?.hasAudibleAudio() == false) {
+                    onSilent(id)
+                    halt(clearPlaying = true)
+                    return@post
+                }
                 preparing = true
                 startPlayer(id, sourcePackage, token)
             }
@@ -393,5 +420,6 @@ class VoicemailPlayer(
         const val END_HZ = 440.0
         const val START_MS = 180
         const val END_MS = 280
+        const val TAG = "VoicemailPlayer"
     }
 }

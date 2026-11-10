@@ -37,6 +37,7 @@ import com.brian.dialbuddy.domain.parseDeletionStamps
 import com.brian.dialbuddy.domain.presentVoicemails
 import com.brian.dialbuddy.domain.qualifiesForBulkDelete
 import com.brian.dialbuddy.domain.retainRecentStamps
+import com.brian.dialbuddy.domain.shownDurationSeconds
 import com.brian.dialbuddy.domain.tallyDeletions
 import com.brian.dialbuddy.domain.voicemailById
 import com.brian.dialbuddy.domain.WINDOW_MONTH_MILLIS
@@ -47,6 +48,7 @@ import com.brian.dialbuddy.telecom.NoticeListener
 import com.brian.dialbuddy.telecom.CallLogStore
 import com.brian.dialbuddy.telecom.ContactLookup
 import com.brian.dialbuddy.telecom.VoicemailAccessDenied
+import com.brian.dialbuddy.telecom.VoicemailAudioProbe
 import com.brian.dialbuddy.telecom.VoicemailPlayer
 import com.brian.dialbuddy.telecom.VoicemailStore
 import kotlinx.coroutines.Dispatchers
@@ -170,6 +172,7 @@ class DialViewModel(app: Application) : AndroidViewModel(app) {
             }
         },
         onError = { message -> toast(message) },
+        onSilent = { id -> markSilent(id) },
     )
     private var loadGeneration = 0
     private var historyGeneration = 0
@@ -332,7 +335,7 @@ class DialViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val loaded = withContext(Dispatchers.IO) {
                 try {
-                    store.load() to null
+                    withMeasuredDurations(store.load()) to null
                 } catch (_: VoicemailAccessDenied) {
                     emptyList<VoicemailEntry>() to app.getString(R.string.voicemail_denied)
                 }
@@ -421,6 +424,42 @@ class DialViewModel(app: Application) : AndroidViewModel(app) {
                     historyAccess = HistoryAccess.Ready,
                 )
             }
+        }
+    }
+
+    private fun markSilent(id: Long) {
+        _state.update { state ->
+            val playingThis = state.playingVoicemailId == id
+            state.copy(
+                entries = state.entries.map { entry ->
+                    if (entry.id == id) entry.copy(durationSeconds = 0) else entry
+                },
+                playingVoicemailId = if (playingThis) null else state.playingVoicemailId,
+                playbackFraction = if (playingThis) 0f else state.playbackFraction,
+            )
+        }
+    }
+
+    private fun withMeasuredDurations(entries: List<VoicemailEntry>): List<VoicemailEntry> {
+        val probe = VoicemailAudioProbe(getApplication())
+        return entries.map { entry ->
+            if (entry.deleted) return@map entry
+            val media = try {
+                store.media(entry.id)
+            } catch (_: VoicemailAccessDenied) {
+                return@map entry
+            }
+            if (!media.hasContent) {
+                val shown = shownDurationSeconds(entry.durationSeconds, null, hasContent = false)
+                return@map if (shown == entry.durationSeconds) entry else entry.copy(durationSeconds = shown)
+            }
+            val level = try {
+                probe.measure(store.itemUri(entry.id, media.sourcePackage))
+            } catch (_: Exception) {
+                null
+            }
+            val shown = shownDurationSeconds(entry.durationSeconds, level)
+            if (shown == entry.durationSeconds) entry else entry.copy(durationSeconds = shown)
         }
     }
 

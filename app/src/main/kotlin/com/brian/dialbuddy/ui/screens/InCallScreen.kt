@@ -207,25 +207,17 @@ fun CallCard(line: CallLine, state: InCallState, modifier: Modifier = Modifier) 
 
 @Composable
 private fun ActiveCall(line: CallLine, state: InCallState, modifier: Modifier) {
-    val pager = rememberPagerState(initialPage = 1) { 2 }
+    var tonesOpen by remember { mutableStateOf(false) }
+    if (!tonesOpen) {
+        ActiveControls(line, state, modifier) { tonesOpen = true }
+        return
+    }
     Column(modifier) {
-        Text(
-            text = pageDots(pager.currentPage, 2),
-            color = PhoneBand,
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-        )
-        HorizontalPager(
-            state = pager,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-        ) { page ->
-            if (page == 0) {
-                CallKeypad(line.key, Modifier.fillMaxSize())
-            } else {
-                ActiveControls(line, state, Modifier.fillMaxSize())
-            }
-        }
+        CallKeypad(line.key, Modifier.weight(1f).fillMaxWidth())
+        TextAction(
+            stringResource(R.string.close),
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+        ) { tonesOpen = false }
     }
 }
 
@@ -275,7 +267,12 @@ private fun IncomingCall(line: CallLine, modifier: Modifier) {
 }
 
 @Composable
-private fun ActiveControls(line: CallLine, state: InCallState, modifier: Modifier) {
+private fun ActiveControls(
+    line: CallLine,
+    state: InCallState,
+    modifier: Modifier,
+    onKeypad: () -> Unit,
+) {
     CallerBody(line, modifier) {
         Row(
             Modifier.fillMaxWidth(),
@@ -300,6 +297,11 @@ private fun ActiveControls(line: CallLine, state: InCallState, modifier: Modifie
                 modifier = Modifier.weight(1f),
             ) { Calls.toggleMute() }
         }
+        TextAction(
+            stringResource(R.string.tone_keypad),
+            Modifier.fillMaxWidth().padding(top = 12.dp),
+            onKeypad,
+        )
         WireAction(
             stringResource(R.string.hangup),
             Danger,
@@ -406,6 +408,20 @@ private fun RouteButton(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+@Composable
+private fun TextAction(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier
+            .height(48.dp)
+            .border(1.dp, PhoneStroke, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 22.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = Ink, fontSize = 16.sp)
     }
 }
 

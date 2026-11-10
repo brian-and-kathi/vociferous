@@ -1,8 +1,6 @@
 package com.brian.dialbuddy.ui.screens
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.net.Uri
+import android.app.Activity
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -28,6 +26,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -46,20 +45,21 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.brian.dialbuddy.R
-import com.brian.dialbuddy.data.ReleaseLookup
+import com.brian.dialbuddy.data.AppUpdate
 import com.brian.dialbuddy.domain.DeletionCounts
+import com.brian.dialbuddy.domain.ReleaseOffer
 import com.brian.dialbuddy.domain.callPageAfterReorder
-import com.brian.dialbuddy.domain.isNewerRelease
 import com.brian.dialbuddy.domain.orderedCallCards
 import com.brian.dialbuddy.domain.presentVoicemails
 import com.brian.dialbuddy.telecom.Calls
@@ -131,7 +131,20 @@ fun DialScreen(
     var areaCodesOpen by remember { mutableStateOf(false) }
     var updateNotice by remember { mutableStateOf<UpdateNotice?>(null) }
     var updateCheck by remember { mutableIntStateOf(0) }
+    var readyOffer by remember { mutableStateOf<ReleaseOffer?>(null) }
     val version = remember(context) { appVersionName(context) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event != Lifecycle.Event.ON_START) return@LifecycleEventObserver
+            val activity = context as? Activity ?: return@LifecycleEventObserver
+            AppUpdate.refreshAsync(activity) { offer ->
+                if (offer != null && AppUpdate.claimPrompt(activity, offer)) readyOffer = offer
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(state.toast) {
         val message = state.toast ?: return@LaunchedEffect
         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -218,9 +231,18 @@ fun DialScreen(
                         val generation = updateCheck + 1
                         updateCheck = generation
                         updateNotice = UpdateNotice.Checking
-                        scope.launch {
-                            val notice = withContext(Dispatchers.IO) { lookForUpdate(version) }
-                            if (updateCheck == generation) updateNotice = notice
+                        val activity = context as? Activity
+                        if (activity == null) {
+                            updateNotice = UpdateNotice.Failed
+                        } else {
+                            AppUpdate.checkNow(activity) { result ->
+                                if (updateCheck != generation) return@checkNow
+                                updateNotice = when (result) {
+                                    is AppUpdate.Check.Update -> UpdateNotice.Available(result.offer)
+                                    AppUpdate.Check.Current -> UpdateNotice.Current
+                                    AppUpdate.Check.Failed -> UpdateNotice.Failed
+                                }
+                            }
                         }
                     },
                 )
@@ -494,11 +516,26 @@ fun DialScreen(
             updateCheck += 1
             updateNotice = null
         },
-        onDownload = { url ->
+        onInstall = { offer ->
+            updateCheck += 1
             updateNotice = null
-            openDownload(context, url)
+            (context as? Activity)?.let { AppUpdate.startInstall(it, offer) }
         },
     )
+    readyOffer?.let { offer ->
+        ReadyUpdateDialog(
+            versionName = offer.versionName,
+            onLater = {
+                readyOffer = null
+                AppUpdate.dismiss(context, offer.versionName)
+            },
+            onInstall = {
+                readyOffer = null
+                (context as? Activity)?.let { AppUpdate.startInstall(it, offer) }
+            },
+            onDismiss = { readyOffer = null },
+        )
+    }
 }
 
 @Composable
@@ -732,43 +769,21 @@ private fun StatsPage(
 private sealed interface UpdateNotice {
     data object Checking : UpdateNotice
     data object Current : UpdateNotice
-    data class Available(val version: String, val downloadUrl: String?) : UpdateNotice
+    data class Available(val offer: ReleaseOffer) : UpdateNotice
     data object Failed : UpdateNotice
-}
-
-private fun lookForUpdate(installed: String): UpdateNotice {
-    val published = try {
-        ReleaseLookup.latest()
-    } catch (_: Exception) {
-        null
-    } ?: return UpdateNotice.Failed
-    val version = published.version.removePrefix("v").removePrefix("V")
-    return if (isNewerRelease(installed, version)) {
-        UpdateNotice.Available(version, published.downloadUrl)
-    } else {
-        UpdateNotice.Current
-    }
-}
-
-private fun openDownload(context: android.content.Context, url: String) {
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-    } catch (_: ActivityNotFoundException) {
-        Toast.makeText(context, context.getString(R.string.update_failed), Toast.LENGTH_LONG).show()
-    }
 }
 
 @Composable
 private fun UpdateDialog(
     notice: UpdateNotice?,
     onDismiss: () -> Unit,
-    onDownload: (String) -> Unit,
+    onInstall: (ReleaseOffer) -> Unit,
 ) {
     if (notice == null) return
     val message = when (notice) {
         UpdateNotice.Checking -> stringResource(R.string.update_checking)
         UpdateNotice.Current -> stringResource(R.string.update_current)
-        is UpdateNotice.Available -> stringResource(R.string.update_available, notice.version)
+        is UpdateNotice.Available -> stringResource(R.string.update_available, notice.offer.versionName)
         UpdateNotice.Failed -> stringResource(R.string.update_failed)
     }
     AlertDialog(
@@ -776,14 +791,33 @@ private fun UpdateDialog(
         title = { Text(stringResource(R.string.check_for_updates)) },
         text = { Text(message) },
         confirmButton = {
-            if (notice is UpdateNotice.Available && notice.downloadUrl != null) {
-                TextButton(onClick = { onDownload(notice.downloadUrl) }) {
-                    Text(stringResource(R.string.update_download))
+            if (notice is UpdateNotice.Available) {
+                TextButton(onClick = { onInstall(notice.offer) }) {
+                    Text(stringResource(R.string.update_install))
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+        },
+    )
+}
+
+@Composable
+private fun ReadyUpdateDialog(
+    versionName: String,
+    onLater: () -> Unit,
+    onInstall: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        text = { Text(stringResource(R.string.update_ready, versionName)) },
+        confirmButton = {
+            TextButton(onClick = onInstall) { Text(stringResource(R.string.update_install)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onLater) { Text(stringResource(R.string.update_later)) }
         },
     )
 }

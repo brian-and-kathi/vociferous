@@ -1,5 +1,10 @@
 package com.brian.dialbuddy.domain
 
+data class ReleaseOffer(
+    val versionName: String,
+    val apkUrl: String,
+)
+
 fun isNewerRelease(installed: String, published: String): Boolean {
     val current = releaseNumbers(installed)
     val latest = releaseNumbers(published)
@@ -11,6 +16,42 @@ fun isNewerRelease(installed: String, published: String): Boolean {
         if (there != here) return there > here
     }
     return false
+}
+
+fun isReleaseCheckDue(checkedAtMillis: Long, nowMillis: Long): Boolean {
+    return nowMillis - checkedAtMillis >= MILLIS_PER_DAY
+}
+
+fun shouldPromptForUpdate(
+    versionName: String,
+    dismissedVersion: String?,
+    promptedVersion: String?,
+): Boolean {
+    val version = versionName.trim()
+    if (version.isEmpty()) return false
+    if (dismissedVersion == version) return false
+    if (promptedVersion == version) return false
+    return true
+}
+
+fun releaseOffer(published: String, downloadUrl: String?, installed: String): ReleaseOffer? {
+    val versionName = published.trim().removePrefix("v").removePrefix("V")
+    if (versionName.isEmpty()) return null
+    if (downloadUrl == null || !downloadUrl.startsWith("https://")) return null
+    if (!isNewerRelease(installed, versionName)) return null
+    return ReleaseOffer(versionName, downloadUrl)
+}
+
+fun isInstallableUpgrade(
+    archivedPackage: String?,
+    archivedVersionCode: Long,
+    installedVersionCode: Long,
+): Boolean {
+    return archivedPackage == "com.brian.dialbuddy" && archivedVersionCode > installedVersionCode
+}
+
+fun hasZipMagic(header: ByteArray): Boolean {
+    return header.size >= 2 && header[0] == 'P'.code.toByte() && header[1] == 'K'.code.toByte()
 }
 
 private fun releaseNumbers(name: String): List<Int> {

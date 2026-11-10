@@ -42,6 +42,17 @@ class VoicemailRulesTest {
     }
 
     @Test
+    fun mailboxListsTheOldestMessageFirst() {
+        val older = VoicemailEntry(1, "555", 4, 10L, false)
+        val newer = VoicemailEntry(2, "555", 4, 30L, false)
+        val removed = VoicemailEntry(3, "555", 4, 40L, false, deleted = true)
+        assertEquals(
+            listOf(1L, 2L),
+            chronologicalVoicemails(listOf(newer, removed, older)).map { it.id },
+        )
+    }
+
+    @Test
     fun bulkDeleteSkipsRecognizedNumbers() {
         val entries = listOf(
             entry(1, 1, number = "5550100"),

@@ -27,6 +27,8 @@ import com.brian.dialbuddy.domain.DeletionCounts
 import com.brian.dialbuddy.domain.DeletionStamp
 import com.brian.dialbuddy.domain.DEFAULT_THRESHOLD_SECONDS
 import com.brian.dialbuddy.domain.callsForPage
+import com.brian.dialbuddy.domain.chronologicalNotices
+import com.brian.dialbuddy.domain.chronologicalVoicemails
 import com.brian.dialbuddy.domain.recognizedCallerName
 import com.brian.dialbuddy.domain.VoicemailEntry
 import com.brian.dialbuddy.domain.clampThreshold
@@ -672,7 +674,7 @@ class DialViewModel(app: Application) : AndroidViewModel(app) {
 
     fun visibleRows(state: DialUiState = _state.value, tab: MailboxTab = state.mailboxTab): List<MailboxRow> {
         val wantKnown = tab == MailboxTab.Known
-        return presentVoicemails(state.entries)
+        return chronologicalVoicemails(state.entries)
             .map { entry ->
                 MailboxRow(
                     entry = entry,
@@ -681,15 +683,13 @@ class DialViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             .filter { (it.contactName != null) == wantKnown }
-            .sortedByDescending { it.entry.dateMillis }
     }
 
     fun noticeApps(state: DialUiState = _state.value): List<NoticeApp> =
         com.brian.dialbuddy.domain.noticeApps(state.notices)
 
     fun noticeRows(packageName: String, state: DialUiState = _state.value): List<NoticeRow> {
-        return state.notices
-            .filter { it.packageName == packageName }
+        return chronologicalNotices(state.notices.filter { it.packageName == packageName })
             .map { notice -> NoticeRow(notice = notice, dayLabel = dayLabel(notice.updatedAt)) }
     }
 

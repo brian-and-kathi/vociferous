@@ -12,8 +12,8 @@ android {
         applicationId = "com.brian.dialbuddy"
         minSdk = 31
         targetSdk = 35
-        versionCode = 12
-        versionName = "1.9.1"
+        versionCode = 13
+        versionName = "1.10.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

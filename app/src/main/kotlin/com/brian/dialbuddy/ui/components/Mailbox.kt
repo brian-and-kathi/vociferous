@@ -202,13 +202,19 @@ fun MailboxPane(
             if (showSamsungNote) {
                 Text(samsungNote, color = InkMuted, modifier = Modifier.padding(horizontal = CardInset).padding(top = 8.dp))
             }
+            val days = rows.groupBy { it.dayLabel }
+            val listState = rememberChronologicalListState(
+                itemCount = if (rows.isEmpty()) 0 else rows.size + days.size,
+                newestKey = rows.lastOrNull()?.entry?.id,
+            )
             LazyColumn(
-                Modifier
+                state = listState,
+                modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
                     .padding(top = 8.dp),
             ) {
-                rows.groupBy { it.dayLabel }.forEach { (day, messages) ->
+                days.forEach { (day, messages) ->
                     stickyHeader(key = "day-$day") {
                         DaySection(day, TitleInk)
                     }

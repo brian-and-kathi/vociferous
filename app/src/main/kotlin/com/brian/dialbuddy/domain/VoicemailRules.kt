@@ -50,6 +50,9 @@ fun VoicemailEntry.isEmpty(thresholdSeconds: Int): Boolean {
 fun presentVoicemails(entries: List<VoicemailEntry>): List<VoicemailEntry> =
     entries.filterNot { it.deleted }
 
+fun chronologicalVoicemails(entries: List<VoicemailEntry>): List<VoicemailEntry> =
+    presentVoicemails(entries).sortedBy { it.dateMillis }
+
 fun voicemailById(entries: List<VoicemailEntry>, id: Long): VoicemailEntry? =
     presentVoicemails(entries).firstOrNull { it.id == id }
 

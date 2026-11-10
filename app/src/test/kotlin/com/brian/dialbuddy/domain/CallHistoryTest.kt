@@ -25,14 +25,14 @@ class CallHistoryTest {
     }
 
     @Test
-    fun pagesSplitNewestFirst() {
+    fun pagesListTheOldestCallFirst() {
         val calls = listOf(
             call(1, "555", 100),
             call(2, "999", 300),
             call(3, "555", 200),
         )
         val contacts = mapOf("555" to "Ada")
-        assertEquals(listOf(3L, 1L), callsForPage(calls, contacts, recognized = true).map { it.id })
+        assertEquals(listOf(1L, 3L), callsForPage(calls, contacts, recognized = true).map { it.id })
         assertEquals(listOf(2L), callsForPage(calls, contacts, recognized = false).map { it.id })
     }
 

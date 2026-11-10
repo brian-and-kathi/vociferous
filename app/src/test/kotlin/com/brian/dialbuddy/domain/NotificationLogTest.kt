@@ -75,6 +75,18 @@ class NotificationLogTest {
     }
 
     @Test
+    fun noticesReadOldestFirstWhileTheCapKeepsTheNewest() {
+        val notices = listOf(
+            notice("new", updatedAt = 30),
+            notice("old", updatedAt = 10),
+            notice("mid", updatedAt = 20),
+        )
+        assertEquals(listOf("old", "mid", "new"), chronologicalNotices(notices).map { it.key })
+        val capped = capNotices(notices, limit = 2)
+        assertEquals(listOf("new", "mid"), capped.map { it.key })
+    }
+
+    @Test
     fun appsFollowTheNewestNotice() {
         val notices = listOf(
             notice("a", updatedAt = 1, packageName = "com.old", appName = "Old"),

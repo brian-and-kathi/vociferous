@@ -107,6 +107,9 @@ data class NoticeApp(
     val count: Int,
 )
 
+fun chronologicalNotices(notices: List<Notice>): List<Notice> = notices.sortedBy { it.updatedAt }
+
+// Newest sender first so the pager opens on the latest app. The notice list itself is oldest first.
 fun noticeApps(notices: List<Notice>): List<NoticeApp> {
     return notices
         .groupBy { it.packageName }
@@ -123,6 +126,7 @@ fun removeNotices(current: List<Notice>, keys: Set<String>): List<Notice> {
     return current.filter { it.key !in keys }
 }
 
+// Newest first so take(limit) keeps the latest rows. Screens list those rows oldest first.
 fun capNotices(current: List<Notice>, limit: Int = NOTICE_LIMIT): List<Notice> {
     return current.sortedByDescending { it.updatedAt }.take(limit)
 }

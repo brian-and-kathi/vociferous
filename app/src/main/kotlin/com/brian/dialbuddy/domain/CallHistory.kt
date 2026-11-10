@@ -42,7 +42,7 @@ fun callsForPage(
             val known = recognizedCallerName(record.number, record.cachedName, contacts) != null
             known == recognized
         }
-        .sortedByDescending { it.dateMillis }
+        .sortedBy { it.dateMillis }
 }
 
 fun callDurationClock(seconds: Long): String? {

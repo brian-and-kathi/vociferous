@@ -192,13 +192,19 @@ fun HistoryPage(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = CardInset, vertical = 8.dp),
             )
         }
+        val days = rows.groupBy { it.dayLabel }
+        val listState = rememberChronologicalListState(
+            itemCount = if (rows.isEmpty()) 0 else rows.size + days.size,
+            newestKey = rows.lastOrNull()?.record?.id,
+        )
         LazyColumn(
-            Modifier
+            state = listState,
+            modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(top = 8.dp),
         ) {
-            rows.groupBy { it.dayLabel }.forEach { (day, calls) ->
+            days.forEach { (day, calls) ->
                 stickyHeader(key = "day-$day") {
                     DaySection(day, HistoryInk)
                 }

@@ -24,12 +24,13 @@ enum class CallGlyph {
     Resume,
     Answer,
     Decline,
+    Trash,
 }
 
 @Composable
 fun CallGlyphIcon(glyph: CallGlyph, color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier) {
-        val stroke = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val stroke = Stroke(width = size.minDimension * 0.09f, cap = StrokeCap.Round, join = StrokeJoin.Round)
         when (glyph) {
             CallGlyph.Bluetooth -> drawBluetooth(color, stroke)
             CallGlyph.Speaker -> drawSpeaker(color, stroke, waves = false)
@@ -40,6 +41,7 @@ fun CallGlyphIcon(glyph: CallGlyph, color: Color, modifier: Modifier = Modifier)
             CallGlyph.Resume -> drawResume(color)
             CallGlyph.Answer -> drawHandset(color, stroke, rising = true)
             CallGlyph.Decline -> drawHandset(color, stroke, rising = false)
+            CallGlyph.Trash -> drawTrash(color, stroke)
         }
     }
 }
@@ -137,6 +139,25 @@ private fun DrawScope.drawResume(color: Color) {
         close()
     }
     drawPath(triangle, color)
+}
+
+private fun DrawScope.drawTrash(color: Color, stroke: Stroke) {
+    val x = { fraction: Float -> size.width * fraction }
+    val y = { fraction: Float -> size.height * fraction }
+    drawLine(color, Offset(x(0.38f), y(0.14f)), Offset(x(0.62f), y(0.14f)), stroke.width, stroke.cap)
+    drawLine(color, Offset(x(0.42f), y(0.14f)), Offset(x(0.42f), y(0.22f)), stroke.width, stroke.cap)
+    drawLine(color, Offset(x(0.58f), y(0.14f)), Offset(x(0.58f), y(0.22f)), stroke.width, stroke.cap)
+    drawLine(color, Offset(x(0.16f), y(0.28f)), Offset(x(0.84f), y(0.28f)), stroke.width, stroke.cap)
+    val body = Path().apply {
+        moveTo(x(0.26f), y(0.36f))
+        lineTo(x(0.32f), y(0.88f))
+        lineTo(x(0.68f), y(0.88f))
+        lineTo(x(0.74f), y(0.36f))
+        close()
+    }
+    drawPath(body, color, style = stroke)
+    drawLine(color, Offset(x(0.42f), y(0.46f)), Offset(x(0.42f), y(0.74f)), stroke.width, stroke.cap)
+    drawLine(color, Offset(x(0.58f), y(0.46f)), Offset(x(0.58f), y(0.74f)), stroke.width, stroke.cap)
 }
 
 private fun DrawScope.drawHandset(color: Color, stroke: Stroke, rising: Boolean) {

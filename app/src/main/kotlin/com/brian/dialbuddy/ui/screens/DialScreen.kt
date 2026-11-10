@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -66,6 +65,7 @@ import com.brian.dialbuddy.domain.presentVoicemails
 import com.brian.dialbuddy.telecom.Calls
 import com.brian.dialbuddy.ui.components.AreaCodesPage
 import com.brian.dialbuddy.ui.components.CallsMenu
+import com.brian.dialbuddy.ui.components.CardPager
 import com.brian.dialbuddy.ui.components.HistoryPage
 import com.brian.dialbuddy.ui.components.KeypadPane
 import com.brian.dialbuddy.ui.components.MailMenu
@@ -232,10 +232,9 @@ fun DialScreen(
                 )
                 Box(Modifier.size(36.dp))
             }
-            HorizontalPager(
+            CardPager(
                 state = phonePager,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                pageSpacing = 20.dp,
             ) { page ->
                 val line = calls.getOrNull(page - 1)
                 PageCard(
@@ -306,10 +305,9 @@ fun DialScreen(
                 )
                 Box(Modifier.size(36.dp))
             }
-            HorizontalPager(
+            CardPager(
                 state = historyPager,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                pageSpacing = 20.dp,
             ) { page ->
                 val recognized = page == 0
                 PageCard(
@@ -363,10 +361,9 @@ fun DialScreen(
                 )
                 Box(Modifier.size(36.dp))
             }
-            HorizontalPager(
+            CardPager(
                 state = noticePager,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                pageSpacing = 20.dp,
             ) { page ->
                 val app = noticeApps.getOrNull(page)
                 PageCard(
@@ -414,10 +411,9 @@ fun DialScreen(
                 )
                 Box(Modifier.size(36.dp))
             }
-            HorizontalPager(
+            CardPager(
                 state = mailPager,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                pageSpacing = 20.dp,
             ) { page ->
                 val card = mailCards[page]
                 PageCard(

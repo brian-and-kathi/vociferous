@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
@@ -20,7 +19,9 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -39,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,11 +56,15 @@ import com.brian.dialbuddy.telecom.ContactMatch
 import com.brian.dialbuddy.telecom.InCallState
 import com.brian.dialbuddy.ui.components.CallGlyph
 import com.brian.dialbuddy.ui.components.CallGlyphIcon
+import com.brian.dialbuddy.ui.components.CardPager
 import com.brian.dialbuddy.ui.components.Dtmf
 import com.brian.dialbuddy.ui.components.KeypadPane
 import com.brian.dialbuddy.ui.components.RaggedCard
 import com.brian.dialbuddy.ui.components.ToneKeypad
+import com.brian.dialbuddy.ui.theme.Accent
 import com.brian.dialbuddy.ui.theme.Danger
+import com.brian.dialbuddy.ui.theme.OnAccent
+import com.brian.dialbuddy.ui.theme.OnDanger
 import com.brian.dialbuddy.ui.theme.Digit
 import com.brian.dialbuddy.ui.theme.Forest
 import com.brian.dialbuddy.ui.theme.PhoneBand
@@ -131,10 +137,9 @@ fun InCallScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
-            HorizontalPager(
+            CardPager(
                 state = pager,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                pageSpacing = 20.dp,
             ) { page ->
                 val line = calls.getOrNull(page - 1)
                 RaggedCard(
@@ -258,11 +263,87 @@ fun CallKeypad(callKey: String?, modifier: Modifier = Modifier) {
 
 @Composable
 private fun IncomingCall(line: CallLine, modifier: Modifier) {
-    CallerBody(line, modifier) {
-        Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            WireAction(stringResource(R.string.decline), Danger, CallGlyph.Decline) { Calls.decline(line.key) }
-            WireAction(stringResource(R.string.answer), PhoneBand, CallGlyph.Answer) { Calls.answer(line.key) }
+    val number = line.number
+    val context = LocalContext.current
+    var match by remember(number) { mutableStateOf<ContactMatch?>(null) }
+    LaunchedEffect(number) {
+        match = if (number.isBlank()) {
+            null
+        } else {
+            withContext(Dispatchers.IO) { ContactLookup.find(context, number) }
         }
+    }
+    val name = match?.name?.takeIf { it.isNotBlank() }
+    Column(
+        modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (match != null) {
+            val initial = name?.firstOrNull()?.uppercase() ?: stringResource(R.string.unknown_mark)
+            CallerPhoto(match?.photoUri, initial)
+            Text(
+                name ?: number.ifBlank { stringResource(R.string.unknown) },
+                color = Ink,
+                fontSize = 28.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            )
+            if (!name.isNullOrBlank() && number.isNotBlank()) {
+                Text(number, color = InkMuted, fontSize = 16.sp, textAlign = TextAlign.Center)
+            }
+        } else {
+            Text(
+                stringResource(R.string.unknown),
+                color = Ink,
+                fontSize = 28.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (number.isNotBlank()) {
+                Text(number, color = InkMuted, fontSize = 16.sp, textAlign = TextAlign.Center)
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(36.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RingButton(Accent, OnAccent, stringResource(R.string.call_yes)) {
+                Calls.answer(line.key)
+            }
+            RingButton(Danger, OnDanger, stringResource(R.string.call_no)) {
+                Calls.decline(line.key)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RingButton(
+    fill: androidx.compose.ui.graphics.Color,
+    ink: androidx.compose.ui.graphics.Color,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .requiredSize(112.dp)
+            .clip(CircleShape)
+            .background(fill)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = ink,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
+        )
     }
 }
 

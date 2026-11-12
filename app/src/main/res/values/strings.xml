@@ -120,6 +120,10 @@
     <string name="unknown_caller">Unknown caller</string>
     <string name="unknown">Unknown</string>
     <string name="contact_missing">This number is not saved in contacts.</string>
+    <string name="contact_phone">Phone</string>
+    <string name="contact_email">Email</string>
+    <string name="contact_notes">Notes</string>
+    <string name="contact_none">No contact info</string>
     <string name="unknown_mark">?</string>
     <string name="answer">Answer</string>
     <string name="decline">Reject</string>

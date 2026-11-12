@@ -7,7 +7,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,16 +50,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.brian.dialbuddy.R
+import com.brian.dialbuddy.domain.ContactPanel
 import com.brian.dialbuddy.domain.callPageAfterReorder
+import com.brian.dialbuddy.domain.contactPanel
+import com.brian.dialbuddy.domain.contactSwipeEnabled
 import com.brian.dialbuddy.domain.orderedCallCards
 import com.brian.dialbuddy.telecom.CallLine
 import com.brian.dialbuddy.telecom.Calls
 import com.brian.dialbuddy.telecom.ContactLookup
 import com.brian.dialbuddy.telecom.ContactMatch
+import com.brian.dialbuddy.telecom.ContactProfile
 import com.brian.dialbuddy.telecom.InCallState
 import com.brian.dialbuddy.ui.components.CallGlyph
 import com.brian.dialbuddy.ui.components.CallGlyphIcon
 import com.brian.dialbuddy.ui.components.CardPager
+import com.brian.dialbuddy.ui.components.appVersionName
 import com.brian.dialbuddy.ui.components.Dtmf
 import com.brian.dialbuddy.ui.components.KeypadPane
 import com.brian.dialbuddy.ui.components.RaggedCard
@@ -202,19 +210,136 @@ fun WatchIncomingSilence(
 @Composable
 fun CallCard(line: CallLine, state: InCallState, modifier: Modifier = Modifier) {
     key(line.key) {
-        if (line.isIncoming()) {
-            IncomingCall(line, modifier)
+        val lookup = rememberCallerLookup(line.number)
+        val profile = lookup.profile
+        val panel = contactPanel(
+            name = profile?.name,
+            phones = profile?.phones.orEmpty(),
+            emails = profile?.emails.orEmpty(),
+            note = profile?.note,
+            noteLabel = stringResource(R.string.contact_notes),
+            phoneLabel = stringResource(R.string.contact_phone),
+            emailLabel = stringResource(R.string.contact_email),
+        )
+        CallPages(panel, profile?.photoUri, modifier) {
+            if (line.isIncoming()) {
+                IncomingCall(line, profile, lookup.settled, Modifier.fillMaxSize())
+            } else {
+                ActiveCall(line, state, profile, lookup.settled, Modifier.fillMaxSize())
+            }
+        }
+    }
+}
+
+private data class CallerLookup(val profile: ContactProfile?, val settled: Boolean)
+
+@Composable
+private fun rememberCallerLookup(number: String): CallerLookup {
+    val context = LocalContext.current
+    var profile by remember(number) { mutableStateOf<ContactProfile?>(null) }
+    var settled by remember(number) { mutableStateOf(number.isBlank()) }
+    LaunchedEffect(number) {
+        profile = if (number.isBlank()) {
+            null
         } else {
-            ActiveCall(line, state, modifier)
+            withContext(Dispatchers.IO) { ContactLookup.profile(context, number) }
+        }
+        settled = true
+    }
+    return CallerLookup(profile, settled)
+}
+
+@Composable
+private fun CallPages(
+    panel: ContactPanel?,
+    photoUri: android.net.Uri?,
+    modifier: Modifier,
+    call: @Composable () -> Unit,
+) {
+    if (panel == null || !contactSwipeEnabled(panel)) {
+        Box(modifier) { call() }
+        return
+    }
+    val pager = rememberPagerState { 2 }
+    HorizontalPager(
+        state = pager,
+        modifier = modifier,
+        beyondViewportPageCount = 1,
+        userScrollEnabled = true,
+    ) { page ->
+        if (page == 0) {
+            Box(Modifier.fillMaxSize()) { call() }
+        } else {
+            ContactInfo(panel, photoUri, Modifier.fillMaxSize())
         }
     }
 }
 
 @Composable
-private fun ActiveCall(line: CallLine, state: InCallState, modifier: Modifier) {
+private fun ContactInfo(
+    panel: ContactPanel,
+    photoUri: android.net.Uri?,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val version = remember(context) { appVersionName(context) }
+    val initial = panel.name.firstOrNull()?.uppercase() ?: stringResource(R.string.unknown_mark)
+    Column(modifier.padding(horizontal = 8.dp)) {
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.Start,
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CallerPhoto(photoUri, initial, size = 64.dp, letter = 28.sp)
+                if (panel.name.isNotBlank()) {
+                    Text(
+                        panel.name,
+                        color = Ink,
+                        fontSize = 22.sp,
+                        modifier = Modifier.padding(start = 12.dp).weight(1f),
+                    )
+                }
+            }
+            panel.fields.forEach { field ->
+                if (field.label.isNotBlank()) {
+                    Text(
+                        field.label,
+                        color = InkMuted,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                }
+                Text(field.value, color = Ink, fontSize = 16.sp)
+            }
+        }
+        if (version.isNotBlank()) {
+            Text(
+                version,
+                color = InkMuted,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActiveCall(
+    line: CallLine,
+    state: InCallState,
+    profile: ContactProfile?,
+    settled: Boolean,
+    modifier: Modifier,
+) {
     var tonesOpen by remember { mutableStateOf(false) }
     if (!tonesOpen) {
-        ActiveControls(line, state, modifier) { tonesOpen = true }
+        ActiveControls(line, state, profile, settled, modifier) { tonesOpen = true }
         return
     }
     Column(modifier) {
@@ -262,25 +387,21 @@ fun CallKeypad(callKey: String?, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun IncomingCall(line: CallLine, modifier: Modifier) {
+private fun IncomingCall(
+    line: CallLine,
+    profile: ContactProfile?,
+    settled: Boolean,
+    modifier: Modifier,
+) {
     val number = line.number
-    val context = LocalContext.current
-    var match by remember(number) { mutableStateOf<ContactMatch?>(null) }
-    LaunchedEffect(number) {
-        match = if (number.isBlank()) {
-            null
-        } else {
-            withContext(Dispatchers.IO) { ContactLookup.find(context, number) }
-        }
-    }
-    val name = match?.name?.takeIf { it.isNotBlank() }
+    val name = profile?.name?.takeIf { it.isNotBlank() }
     Column(
         modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (match != null) {
+        if (profile != null) {
             val initial = name?.firstOrNull()?.uppercase() ?: stringResource(R.string.unknown_mark)
-            CallerPhoto(match?.photoUri, initial)
+            CallerPhoto(profile.photoUri, initial)
             Text(
                 name ?: number.ifBlank { stringResource(R.string.unknown) },
                 color = Ink,
@@ -301,6 +422,15 @@ private fun IncomingCall(line: CallLine, modifier: Modifier) {
             )
             if (number.isNotBlank()) {
                 Text(number, color = InkMuted, fontSize = 16.sp, textAlign = TextAlign.Center)
+            }
+            if (settled && number.isNotBlank()) {
+                Text(
+                    stringResource(R.string.contact_none),
+                    color = InkMuted,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                )
             }
         }
         Spacer(Modifier.weight(1f))
@@ -351,10 +481,12 @@ private fun RingButton(
 private fun ActiveControls(
     line: CallLine,
     state: InCallState,
+    profile: ContactProfile?,
+    settled: Boolean,
     modifier: Modifier,
     onKeypad: () -> Unit,
 ) {
-    CallerBody(line, modifier) {
+    CallerBody(line, profile, settled, modifier) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -395,21 +527,14 @@ private fun ActiveControls(
 @Composable
 private fun CallerBody(
     line: CallLine,
+    profile: ContactProfile?,
+    settled: Boolean,
     modifier: Modifier,
     actions: @Composable () -> Unit,
 ) {
     val number = line.number
-    val context = LocalContext.current
-    var match by remember(number) { mutableStateOf<ContactMatch?>(null) }
-    LaunchedEffect(number) {
-        match = if (number.isBlank()) {
-            null
-        } else {
-            withContext(Dispatchers.IO) { ContactLookup.find(context, number) }
-        }
-    }
-    val recognized = match != null
-    val name = match?.name?.takeIf { it.isNotBlank() }
+    val recognized = profile != null
+    val name = profile?.name?.takeIf { it.isNotBlank() }
     val title = name
         ?: number.takeIf { it.isNotBlank() }
         ?: stringResource(R.string.unknown_caller)
@@ -427,10 +552,19 @@ private fun CallerBody(
             fontSize = 16.sp,
             modifier = Modifier.padding(top = 4.dp),
         )
+        if (settled && profile == null && number.isNotBlank()) {
+            Text(
+                stringResource(R.string.contact_none),
+                color = InkMuted,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            )
+        }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             if (recognized) {
                 val initial = name?.firstOrNull()?.uppercase() ?: stringResource(R.string.unknown_mark)
-                CallerPhoto(match?.photoUri, initial)
+                CallerPhoto(profile?.photoUri, initial)
             }
         }
         actions()
@@ -438,10 +572,15 @@ private fun CallerBody(
 }
 
 @Composable
-private fun CallerPhoto(photoUri: android.net.Uri?, initial: String) {
+private fun CallerPhoto(
+    photoUri: android.net.Uri?,
+    initial: String,
+    size: androidx.compose.ui.unit.Dp = 220.dp,
+    letter: androidx.compose.ui.unit.TextUnit = 96.sp,
+) {
     Box(
         Modifier
-            .size(220.dp)
+            .size(size)
             .clip(CircleShape)
             .border(1.dp, PhoneStroke, CircleShape),
         contentAlignment = Alignment.Center,
@@ -454,7 +593,7 @@ private fun CallerPhoto(photoUri: android.net.Uri?, initial: String) {
                 contentScale = ContentScale.Crop,
             )
         } else {
-            Text(initial, color = Digit, fontSize = 96.sp)
+            Text(initial, color = Digit, fontSize = letter)
         }
     }
 }

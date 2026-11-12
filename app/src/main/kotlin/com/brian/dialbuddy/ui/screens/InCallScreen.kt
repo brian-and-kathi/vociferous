@@ -1,8 +1,11 @@
 package com.brian.dialbuddy.ui.screens
 
 import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.telecom.Call
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -221,7 +224,7 @@ fun CallCard(line: CallLine, state: InCallState, modifier: Modifier = Modifier) 
             phoneLabel = stringResource(R.string.contact_phone),
             emailLabel = stringResource(R.string.contact_email),
         )
-        CallPages(panel, profile?.photoUri, modifier) {
+        CallPages(panel, profile?.photoUri, profile?.viewUri, modifier) {
             if (line.isIncoming()) {
                 IncomingCall(line, profile, lookup.settled, Modifier.fillMaxSize())
             } else {
@@ -253,6 +256,7 @@ private fun rememberCallerLookup(number: String): CallerLookup {
 private fun CallPages(
     panel: ContactPanel?,
     photoUri: android.net.Uri?,
+    viewUri: android.net.Uri?,
     modifier: Modifier,
     call: @Composable () -> Unit,
 ) {
@@ -270,7 +274,7 @@ private fun CallPages(
         if (page == 0) {
             Box(Modifier.fillMaxSize()) { call() }
         } else {
-            ContactInfo(panel, photoUri, Modifier.fillMaxSize())
+            ContactInfo(panel, photoUri, viewUri, Modifier.fillMaxSize())
         }
     }
 }
@@ -279,6 +283,7 @@ private fun CallPages(
 private fun ContactInfo(
     panel: ContactPanel,
     photoUri: android.net.Uri?,
+    viewUri: android.net.Uri?,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -316,6 +321,12 @@ private fun ContactInfo(
                     )
                 }
                 Text(field.value, color = Ink, fontSize = 16.sp)
+            }
+            if (viewUri != null) {
+                TextAction(
+                    stringResource(R.string.open_contact),
+                    Modifier.padding(top = 20.dp),
+                ) { openContact(context, viewUri) }
             }
         }
         if (version.isNotBlank()) {
@@ -680,6 +691,14 @@ private fun callStateLabel(state: Int?): String = when (state) {
     Call.STATE_DISCONNECTING -> stringResource(R.string.state_ending)
     Call.STATE_DISCONNECTED -> stringResource(R.string.state_ended)
     else -> stringResource(R.string.state_call)
+}
+
+private fun openContact(context: android.content.Context, uri: android.net.Uri) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, R.string.add_contact_failed, Toast.LENGTH_LONG).show()
+    }
 }
 
 private fun pageDots(page: Int, count: Int): String {

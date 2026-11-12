@@ -23,6 +23,7 @@ data class ContactProfile(
     val phones: List<ContactField>,
     val emails: List<ContactField>,
     val note: String?,
+    val viewUri: Uri? = null,
 )
 
 object ContactLookup {
@@ -123,6 +124,7 @@ object ContactLookup {
             phones = phones + listOfNotNull(matched),
             emails = emails,
             note = note,
+            viewUri = row.viewUri,
         )
     }
 
@@ -132,6 +134,7 @@ object ContactLookup {
         val contactId: Long?,
         val number: String?,
         val numberLabel: String?,
+        val viewUri: Uri?,
     )
 
     private fun lookupRow(context: Context, number: String): LookupRow? {
@@ -143,6 +146,7 @@ object ContactLookup {
                 PhoneLookup.PHOTO_URI,
                 PhoneLookup.PHOTO_THUMBNAIL_URI,
                 PhoneLookup.CONTACT_ID,
+                PhoneLookup.LOOKUP_KEY,
                 PhoneLookup.NUMBER,
                 PhoneLookup.TYPE,
                 PhoneLookup.LABEL,
@@ -157,12 +161,18 @@ object ContactLookup {
                 ?: picture(cursor, cursor.getColumnIndex(PhoneLookup.PHOTO_THUMBNAIL_URI))
             val idIndex = cursor.getColumnIndex(PhoneLookup.CONTACT_ID)
             val contactId = if (idIndex < 0 || cursor.isNull(idIndex)) null else cursor.getLong(idIndex)
+            val lookupKey = text(cursor, cursor.getColumnIndex(PhoneLookup.LOOKUP_KEY))
+            val viewUri = if (contactId != null && lookupKey != null) {
+                ContactsContract.Contacts.getLookupUri(contactId, lookupKey)
+            } else {
+                null
+            }
             val matched = text(cursor, cursor.getColumnIndex(PhoneLookup.NUMBER))
             val typeIndex = cursor.getColumnIndex(PhoneLookup.TYPE)
             val type = if (typeIndex < 0 || cursor.isNull(typeIndex)) Phone.TYPE_OTHER else cursor.getInt(typeIndex)
             val custom = text(cursor, cursor.getColumnIndex(PhoneLookup.LABEL))
             val label = Phone.getTypeLabel(context.resources, type, custom).toString().trim().ifEmpty { null }
-            return LookupRow(name, photo?.let(Uri::parse), contactId, matched, label)
+            return LookupRow(name, photo?.let(Uri::parse), contactId, matched, label, viewUri)
         }
         return null
     }

@@ -8,7 +8,7 @@ import org.junit.Test
 
 class ContactPanelTest {
     @Test
-    fun aSavedCallerCanBeSwipedOpen() {
+    fun aSavedCallerCanOpenTheSheetOnceTheCallIsConnected() {
         val panel = contactPanel(
             name = "Ada Lovelace",
             phones = listOf(ContactField("Mobile", "(555) 010-1000")),
@@ -18,7 +18,9 @@ class ContactPanelTest {
             phoneLabel = "Phone",
             emailLabel = "Email",
         )
-        assertTrue(contactSwipeEnabled(panel))
+        assertTrue(contactSheetAvailable(ContactAccess.Allowed, panel, ringing = false))
+        assertFalse(contactSheetAvailable(ContactAccess.Allowed, panel, ringing = true))
+        assertEquals(ContactNotice.None, contactNotice(ContactAccess.Allowed, settled = true, hasPanel = true))
         assertEquals("Ada Lovelace", panel?.name)
         assertEquals(
             listOf(
@@ -32,7 +34,11 @@ class ContactPanelTest {
 
     @Test
     fun noSavedContactLeavesTheCallScreenAlone() {
-        assertFalse(contactSwipeEnabled(null))
+        assertFalse(contactSheetAvailable(ContactAccess.Allowed, null, ringing = false))
+        assertEquals(
+            ContactNotice.NoContact,
+            contactNotice(ContactAccess.Allowed, settled = true, hasPanel = false),
+        )
         assertNull(
             contactPanel(
                 name = "  ",
@@ -50,7 +56,7 @@ class ContactPanelTest {
     @Test
     fun aNameAloneIsEnoughToOpenThePanel() {
         val panel = contactPanel("Grace", emptyList(), emptyList(), null, "Notes", "Phone", "Email")
-        assertTrue(contactSwipeEnabled(panel))
+        assertTrue(contactSheetAvailable(ContactAccess.Allowed, panel, ringing = false))
         assertEquals("Grace", panel?.name)
         assertEquals(emptyList<ContactField>(), panel?.fields)
     }
@@ -74,16 +80,82 @@ class ContactPanelTest {
             noteLabel = "Notes",
             phoneLabel = "Phone",
             emailLabel = "Email",
+            phonesMatch = { left, right ->
+                val a = left.filter { it.isDigit() }
+                val b = right.filter { it.isDigit() }
+                a.isNotEmpty() && a == b
+            },
         )
         assertEquals(
             listOf(
                 ContactField("Mobile", "+1 (555) 010-1000"),
+                ContactField("Work", "5550101000"),
                 ContactField("Other", "555-0199"),
                 ContactField("Phone", "123"),
                 ContactField("Home", "Ada@Example.com"),
             ),
             panel?.fields,
         )
+    }
+
+    @Test
+    fun theFirstNumberWinsWhenTheMatcherCallsThemTheSame() {
+        val panel = contactPanel(
+            name = "Ada",
+            phones = listOf(
+                ContactField("Mobile", "+1 (555) 010-1000"),
+                ContactField("Work", "5550101000"),
+            ),
+            emails = emptyList(),
+            note = null,
+            noteLabel = "Notes",
+            phoneLabel = "Phone",
+            emailLabel = "Email",
+            phonesMatch = { _, _ -> true },
+        )
+        assertEquals(listOf(ContactField("Mobile", "+1 (555) 010-1000")), panel?.fields)
+    }
+
+    @Test
+    fun aShortTailDoesNotCollapseADifferentNumber() {
+        val panel = contactPanel(
+            name = "Ada",
+            phones = listOf(
+                ContactField("Mobile", "5550100"),
+                ContactField("Work", "9995550100"),
+            ),
+            emails = emptyList(),
+            note = null,
+            noteLabel = "Notes",
+            phoneLabel = "Phone",
+            emailLabel = "Email",
+            phonesMatch = { left, right -> left.filter { it.isDigit() } == right.filter { it.isDigit() } },
+        )
+        assertEquals(
+            listOf(
+                ContactField("Mobile", "5550100"),
+                ContactField("Work", "9995550100"),
+            ),
+            panel?.fields,
+        )
+    }
+
+    @Test
+    fun contactsAccessOffIsNotReportedAsMissingContactInfo() {
+        assertEquals(
+            ContactNotice.AccessOff,
+            contactNotice(ContactAccess.Off, settled = true, hasPanel = false),
+        )
+        assertEquals(
+            ContactNotice.None,
+            contactNotice(ContactAccess.Off, settled = false, hasPanel = false),
+        )
+        assertEquals(
+            ContactNotice.None,
+            contactNotice(ContactAccess.Unknown, settled = false, hasPanel = false),
+        )
+        assertFalse(contactSheetAvailable(ContactAccess.Off, null, ringing = false))
+        assertFalse(contactSheetAvailable(ContactAccess.Unknown, null, ringing = false))
     }
 
     @Test

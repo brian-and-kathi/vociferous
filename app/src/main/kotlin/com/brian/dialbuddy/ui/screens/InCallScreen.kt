@@ -1,16 +1,23 @@
 package com.brian.dialbuddy.ui.screens
 
 import android.Manifest
+import android.app.Activity
+import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.telecom.Call
 import android.widget.Toast
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -43,9 +50,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,10 +67,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.brian.dialbuddy.R
+import com.brian.dialbuddy.domain.ContactAccess
+import com.brian.dialbuddy.domain.ContactNotice
 import com.brian.dialbuddy.domain.ContactPanel
 import com.brian.dialbuddy.domain.callPageAfterReorder
+import com.brian.dialbuddy.domain.contactNotice
 import com.brian.dialbuddy.domain.contactPanel
-import com.brian.dialbuddy.domain.contactSwipeEnabled
+import com.brian.dialbuddy.domain.contactSheetAvailable
 import com.brian.dialbuddy.domain.orderedCallCards
 import com.brian.dialbuddy.telecom.CallLine
 import com.brian.dialbuddy.telecom.Calls
@@ -83,6 +100,7 @@ import com.brian.dialbuddy.ui.theme.PhoneInk
 import com.brian.dialbuddy.ui.theme.PhoneStroke
 import com.brian.dialbuddy.ui.theme.Ink
 import com.brian.dialbuddy.ui.theme.InkMuted
+import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -214,34 +232,67 @@ fun WatchIncomingSilence(
 fun CallCard(line: CallLine, state: InCallState, modifier: Modifier = Modifier) {
     key(line.key) {
         val lookup = rememberCallerLookup(line.number)
+        val noteLabel = stringResource(R.string.contact_notes)
+        val phoneLabel = stringResource(R.string.contact_phone)
+        val emailLabel = stringResource(R.string.contact_email)
         val profile = lookup.profile
-        val panel = contactPanel(
-            name = profile?.name,
-            phones = profile?.phones.orEmpty(),
-            emails = profile?.emails.orEmpty(),
-            note = profile?.note,
-            noteLabel = stringResource(R.string.contact_notes),
-            phoneLabel = stringResource(R.string.contact_phone),
-            emailLabel = stringResource(R.string.contact_email),
-        )
-        CallPages(panel, profile?.photoUri, profile?.viewUri, modifier) {
-            if (line.isIncoming()) {
-                IncomingCall(line, profile, lookup.settled, Modifier.fillMaxSize())
-            } else {
-                ActiveCall(line, state, profile, lookup.settled, Modifier.fillMaxSize())
+        val panel = remember(profile, noteLabel, phoneLabel, emailLabel) {
+            contactPanel(
+                name = profile?.name,
+                phones = profile?.phones.orEmpty(),
+                emails = profile?.emails.orEmpty(),
+                note = profile?.note,
+                noteLabel = noteLabel,
+                phoneLabel = phoneLabel,
+                emailLabel = emailLabel,
+            )
+        }
+        val notice = contactNotice(lookup.access, lookup.settled, panel != null)
+        val sheet = contactSheetAvailable(lookup.access, panel, line.isIncoming())
+        Box(modifier) {
+            Box(Modifier.fillMaxSize().padding(bottom = if (sheet) 56.dp else 0.dp)) {
+                if (line.isIncoming()) {
+                    IncomingCall(line, profile, notice, Modifier.fillMaxSize())
+                } else {
+                    ActiveCall(line, state, profile, notice, Modifier.fillMaxSize())
+                }
+            }
+            if (sheet && panel != null) {
+                ContactSheet(
+                    panel = panel,
+                    photoUri = profile?.photoUri,
+                    viewUri = profile?.viewUri,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }
 }
 
-private data class CallerLookup(val profile: ContactProfile?, val settled: Boolean)
+private data class CallerLookup(
+    val profile: ContactProfile?,
+    val settled: Boolean,
+    val access: ContactAccess,
+)
 
 @Composable
 private fun rememberCallerLookup(number: String): CallerLookup {
     val context = LocalContext.current
     var profile by remember(number) { mutableStateOf<ContactProfile?>(null) }
-    var settled by remember(number) { mutableStateOf(number.isBlank()) }
+    var settled by remember(number) { mutableStateOf(false) }
+    var access by remember(number) { mutableStateOf(ContactAccess.Unknown) }
     LaunchedEffect(number) {
+        val allowed = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_CONTACTS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!allowed) {
+            access = ContactAccess.Off
+            profile = null
+            settled = true
+            return@LaunchedEffect
+        }
+        access = ContactAccess.Allowed
         profile = if (number.isBlank()) {
             null
         } else {
@@ -249,47 +300,46 @@ private fun rememberCallerLookup(number: String): CallerLookup {
         }
         settled = true
     }
-    return CallerLookup(profile, settled)
+    return CallerLookup(profile, settled, access)
 }
 
 @Composable
-private fun CallPages(
-    panel: ContactPanel?,
-    photoUri: android.net.Uri?,
-    viewUri: android.net.Uri?,
-    modifier: Modifier,
-    call: @Composable () -> Unit,
-) {
-    if (panel == null || !contactSwipeEnabled(panel)) {
-        Box(modifier) { call() }
-        return
-    }
-    val pager = rememberPagerState { 2 }
-    HorizontalPager(
-        state = pager,
-        modifier = modifier,
-        beyondViewportPageCount = 1,
-        userScrollEnabled = true,
-    ) { page ->
-        if (page == 0) {
-            Box(Modifier.fillMaxSize()) { call() }
-        } else {
-            ContactInfo(panel, photoUri, viewUri, Modifier.fillMaxSize())
-        }
-    }
-}
-
-@Composable
-private fun ContactInfo(
+private fun ContactSheet(
     panel: ContactPanel,
     photoUri: android.net.Uri?,
     viewUri: android.net.Uri?,
     modifier: Modifier = Modifier,
 ) {
+    var expanded by remember { mutableStateOf(false) }
+    if (!expanded) {
+        Box(modifier, contentAlignment = Alignment.BottomStart) {
+            ContactHandle(
+                label = stringResource(R.string.contact_sheet),
+                description = stringResource(R.string.contact_details),
+                openUpward = true,
+                modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
+            ) { expanded = true }
+        }
+        return
+    }
     val context = LocalContext.current
     val version = remember(context) { appVersionName(context) }
     val initial = panel.name.firstOrNull()?.uppercase() ?: stringResource(R.string.unknown_mark)
-    Column(modifier.padding(horizontal = 8.dp)) {
+    Column(
+        modifier
+            .background(Forest)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) {}
+            .padding(horizontal = 8.dp),
+    ) {
+        ContactHandle(
+            label = stringResource(R.string.contact_sheet),
+            description = stringResource(R.string.close_contact),
+            openUpward = false,
+            modifier = Modifier.padding(top = 8.dp),
+        ) { expanded = false }
         Column(
             Modifier
                 .weight(1f)
@@ -298,7 +348,7 @@ private fun ContactInfo(
             horizontalAlignment = Alignment.Start,
         ) {
             Row(
-                Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth().padding(top = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CallerPhoto(photoUri, initial, size = 64.dp, letter = 28.sp)
@@ -326,6 +376,7 @@ private fun ContactInfo(
                 TextAction(
                     stringResource(R.string.open_contact),
                     Modifier.padding(top = 20.dp),
+                    description = stringResource(R.string.open_contact),
                 ) { openContact(context, viewUri) }
             }
         }
@@ -334,9 +385,82 @@ private fun ContactInfo(
                 version,
                 color = InkMuted,
                 fontSize = 13.sp,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun ContactHandle(
+    label: String,
+    description: String,
+    openUpward: Boolean,
+    modifier: Modifier = Modifier,
+    onCommit: () -> Unit,
+) {
+    Row(
+        modifier
+            .semantics {
+                role = Role.Button
+                contentDescription = description
+                onClick {
+                    onCommit()
+                    true
+                }
+            }
+            .pointerInput(openUpward) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    var dragged = false
+                    var total = 0f
+                    val threshold = 48.dp.toPx()
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) {
+                            if (!dragged) onCommit()
+                            break
+                        }
+                        val dy = change.position.y - change.previousPosition.y
+                        total += dy
+                        val crossed = if (openUpward) total < -threshold else total > threshold
+                        if (crossed) {
+                            change.consume()
+                            onCommit()
+                            break
+                        }
+                        if (abs(total) > viewConfiguration.touchSlop) {
+                            dragged = true
+                            change.consume()
+                        }
+                    }
+                }
+            }
+            .border(1.dp, PhoneStroke, RoundedCornerShape(8.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .padding(end = 8.dp)
+                .size(width = 28.dp, height = 4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(PhoneBand),
+        )
+        Chevron(up = openUpward)
+        Text(label, color = Ink, fontSize = 16.sp, modifier = Modifier.padding(start = 8.dp))
+    }
+}
+
+@Composable
+private fun Chevron(up: Boolean) {
+    Canvas(Modifier.size(18.dp)) {
+        val stroke = 2.dp.toPx()
+        val mid = if (up) size.height * 0.32f else size.height * 0.68f
+        val outer = if (up) size.height * 0.68f else size.height * 0.32f
+        drawLine(PhoneBand, Offset(size.width * 0.16f, outer), Offset(size.width * 0.5f, mid), stroke)
+        drawLine(PhoneBand, Offset(size.width * 0.5f, mid), Offset(size.width * 0.84f, outer), stroke)
     }
 }
 
@@ -345,12 +469,12 @@ private fun ActiveCall(
     line: CallLine,
     state: InCallState,
     profile: ContactProfile?,
-    settled: Boolean,
+    notice: ContactNotice,
     modifier: Modifier,
 ) {
     var tonesOpen by remember { mutableStateOf(false) }
     if (!tonesOpen) {
-        ActiveControls(line, state, profile, settled, modifier) { tonesOpen = true }
+        ActiveControls(line, state, profile, notice, modifier) { tonesOpen = true }
         return
     }
     Column(modifier) {
@@ -401,7 +525,7 @@ fun CallKeypad(callKey: String?, modifier: Modifier = Modifier) {
 private fun IncomingCall(
     line: CallLine,
     profile: ContactProfile?,
-    settled: Boolean,
+    notice: ContactNotice,
     modifier: Modifier,
 ) {
     val number = line.number
@@ -434,15 +558,7 @@ private fun IncomingCall(
             if (number.isNotBlank()) {
                 Text(number, color = InkMuted, fontSize = 16.sp, textAlign = TextAlign.Center)
             }
-            if (settled && number.isNotBlank()) {
-                Text(
-                    stringResource(R.string.contact_none),
-                    color = InkMuted,
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                )
-            }
+            ContactNoticeLine(notice, number)
         }
         Spacer(Modifier.weight(1f))
         Row(
@@ -493,11 +609,11 @@ private fun ActiveControls(
     line: CallLine,
     state: InCallState,
     profile: ContactProfile?,
-    settled: Boolean,
+    notice: ContactNotice,
     modifier: Modifier,
     onKeypad: () -> Unit,
 ) {
-    CallerBody(line, profile, settled, modifier) {
+    CallerBody(line, profile, notice, modifier) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -524,7 +640,7 @@ private fun ActiveControls(
         TextAction(
             stringResource(R.string.tone_keypad),
             Modifier.fillMaxWidth().padding(top = 12.dp),
-            onKeypad,
+            onClick = onKeypad,
         )
         WireAction(
             stringResource(R.string.hangup),
@@ -539,7 +655,7 @@ private fun ActiveControls(
 private fun CallerBody(
     line: CallLine,
     profile: ContactProfile?,
-    settled: Boolean,
+    notice: ContactNotice,
     modifier: Modifier,
     actions: @Composable () -> Unit,
 ) {
@@ -563,15 +679,7 @@ private fun CallerBody(
             fontSize = 16.sp,
             modifier = Modifier.padding(top = 4.dp),
         )
-        if (settled && profile == null && number.isNotBlank()) {
-            Text(
-                stringResource(R.string.contact_none),
-                color = InkMuted,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            )
-        }
+        ContactNoticeLine(notice, number)
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             if (recognized) {
                 val initial = name?.firstOrNull()?.uppercase() ?: stringResource(R.string.unknown_mark)
@@ -643,12 +751,40 @@ private fun RouteButton(
 }
 
 @Composable
-private fun TextAction(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun ContactNoticeLine(notice: ContactNotice, number: String) {
+    val label = when (notice) {
+        ContactNotice.AccessOff -> stringResource(R.string.contacts_access_off)
+        ContactNotice.NoContact -> if (number.isNotBlank()) stringResource(R.string.contact_none) else return
+        ContactNotice.None -> return
+    }
+    Text(
+        label,
+        color = InkMuted,
+        fontSize = 13.sp,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+    )
+}
+
+@Composable
+private fun TextAction(
+    label: String,
+    modifier: Modifier = Modifier,
+    description: String? = null,
+    onClick: () -> Unit,
+) {
     Box(
         modifier
             .height(48.dp)
             .border(1.dp, PhoneStroke, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
+            .then(
+                if (description == null) {
+                    Modifier
+                } else {
+                    Modifier.semantics { contentDescription = description }
+                },
+            )
             .padding(horizontal = 22.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -693,12 +829,38 @@ private fun callStateLabel(state: Int?): String = when (state) {
     else -> stringResource(R.string.state_call)
 }
 
-private fun openContact(context: android.content.Context, uri: android.net.Uri) {
+private fun openContact(context: Context, uri: android.net.Uri) {
+    val activity = context.findActivity()
+    val keyguard = activity?.getSystemService(KeyguardManager::class.java)
+    if (activity != null && keyguard != null && keyguard.isKeyguardLocked) {
+        keyguard.requestDismissKeyguard(
+            activity,
+            object : KeyguardManager.KeyguardDismissCallback() {
+                override fun onDismissSucceeded() {
+                    launchContact(activity, uri)
+                }
+            },
+        )
+        return
+    }
+    launchContact(context, uri)
+}
+
+private fun launchContact(context: Context, uri: android.net.Uri) {
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, uri))
     } catch (_: ActivityNotFoundException) {
         Toast.makeText(context, R.string.add_contact_failed, Toast.LENGTH_LONG).show()
     }
+}
+
+private fun Context.findActivity(): Activity? {
+    var current: Context = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return null
 }
 
 private fun pageDots(page: Int, count: Int): String {

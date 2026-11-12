@@ -1,5 +1,7 @@
 package com.brian.dialbuddy.domain
 
+import android.telephony.PhoneNumberUtils
+
 data class ContactField(
     val label: String,
     val value: String,
@@ -10,7 +12,19 @@ data class ContactPanel(
     val fields: List<ContactField>,
 )
 
-fun contactSwipeEnabled(panel: ContactPanel?): Boolean = panel != null
+enum class ContactAccess { Unknown, Off, Allowed }
+
+enum class ContactNotice { None, NoContact, AccessOff }
+
+fun contactNotice(access: ContactAccess, settled: Boolean, hasPanel: Boolean): ContactNotice {
+    if (!settled || access == ContactAccess.Unknown) return ContactNotice.None
+    if (access == ContactAccess.Off) return ContactNotice.AccessOff
+    if (!hasPanel) return ContactNotice.NoContact
+    return ContactNotice.None
+}
+
+fun contactSheetAvailable(access: ContactAccess, panel: ContactPanel?, ringing: Boolean): Boolean =
+    access == ContactAccess.Allowed && panel != null && !ringing
 
 fun contactPanel(
     name: String?,
@@ -20,9 +34,10 @@ fun contactPanel(
     noteLabel: String,
     phoneLabel: String,
     emailLabel: String,
+    phonesMatch: (String, String) -> Boolean = ::samePhone,
 ): ContactPanel? {
     val fields = buildList {
-        addAll(distinctValues(phones, phoneLabel, ::samePhone))
+        addAll(distinctValues(phones, phoneLabel, phonesMatch))
         addAll(distinctValues(emails, emailLabel) { left, right ->
             left.trim().equals(right.trim(), ignoreCase = true)
         })
@@ -54,12 +69,4 @@ private fun distinctValues(
     return kept
 }
 
-internal fun samePhone(left: String, right: String): Boolean {
-    val a = left.filter { it.isDigit() }
-    val b = right.filter { it.isDigit() }
-    if (a.isEmpty() || b.isEmpty()) return left.trim().equals(right.trim(), ignoreCase = true)
-    if (a == b) return true
-    val shorter = if (a.length <= b.length) a else b
-    val longer = if (a.length <= b.length) b else a
-    return shorter.length >= 7 && longer.endsWith(shorter)
-}
+internal fun samePhone(left: String, right: String): Boolean = PhoneNumberUtils.compare(left, right)

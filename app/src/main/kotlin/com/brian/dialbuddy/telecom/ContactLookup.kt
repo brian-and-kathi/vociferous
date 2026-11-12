@@ -121,7 +121,7 @@ object ContactLookup {
         return ContactProfile(
             name = row.name,
             photoUri = row.photo,
-            phones = phones + listOfNotNull(matched),
+            phones = listOfNotNull(matched) + phones,
             emails = emails,
             note = note,
             viewUri = row.viewUri,
@@ -138,6 +138,15 @@ object ContactLookup {
     )
 
     private fun lookupRow(context: Context, number: String): LookupRow? {
+        val preferred = "contacts_view.${PhoneLookup.STARRED} DESC, contacts_view.${PhoneLookup.LAST_TIME_CONTACTED} DESC"
+        return try {
+            readLookup(context, number, preferred)
+        } catch (_: RuntimeException) {
+            readLookup(context, number, null)
+        }
+    }
+
+    private fun readLookup(context: Context, number: String, sort: String?): LookupRow? {
         val uri = Uri.withAppendedPath(PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
         context.contentResolver.query(
             uri,
@@ -153,7 +162,7 @@ object ContactLookup {
             ),
             null,
             null,
-            null,
+            sort,
         )?.use { cursor ->
             if (!cursor.moveToFirst()) return null
             val name = text(cursor, cursor.getColumnIndex(PhoneLookup.DISPLAY_NAME))

@@ -262,6 +262,7 @@ fun CallCard(line: CallLine, state: InCallState, modifier: Modifier = Modifier) 
                     panel = panel,
                     photoUri = profile?.photoUri,
                     viewUri = profile?.viewUri,
+                    callKey = line.key,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -308,6 +309,7 @@ private fun ContactSheet(
     panel: ContactPanel,
     photoUri: android.net.Uri?,
     viewUri: android.net.Uri?,
+    callKey: String,
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -385,9 +387,15 @@ private fun ContactSheet(
                 version,
                 color = InkMuted,
                 fontSize = 13.sp,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                modifier = Modifier.padding(top = 8.dp),
             )
         }
+        WireAction(
+            stringResource(R.string.hangup),
+            Danger,
+            CallGlyph.Decline,
+            modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
+        ) { Calls.hangup(callKey) }
     }
 }
 

@@ -38,7 +38,7 @@ fun contactPanel(
 ): ContactPanel? {
     val fields = buildList {
         addAll(distinctValues(phones, phoneLabel, phonesMatch))
-        addAll(distinctValues(emails, emailLabel) { left, right ->
+        addAll(distinctValues(emails.map { it.copy(label = emailRowLabel(it.label, emailLabel)) }, emailLabel) { left, right ->
             left.trim().equals(right.trim(), ignoreCase = true)
         })
         val notes = mergedNote(listOfNotNull(note))
@@ -47,6 +47,18 @@ fun contactPanel(
     val title = name?.trim().orEmpty()
     if (title.isEmpty() && fields.isEmpty()) return null
     return ContactPanel(title, fields)
+}
+
+fun emailRowLabel(typeLabel: String, emailWord: String): String {
+    val word = emailWord.trim().ifEmpty { "Email" }
+    val type = typeLabel.trim()
+    if (type.isEmpty() || type.equals(word, ignoreCase = true)) return word
+    val suffix = " ${word.lowercase()}"
+    if (type.endsWith(suffix, ignoreCase = true)) {
+        val head = type.dropLast(suffix.length).trim()
+        return if (head.isEmpty()) word else "$head$suffix"
+    }
+    return "$type$suffix"
 }
 
 fun mergedNote(parts: List<String>): String? {

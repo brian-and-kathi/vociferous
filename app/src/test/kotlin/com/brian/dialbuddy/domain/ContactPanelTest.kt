@@ -25,7 +25,7 @@ class ContactPanelTest {
         assertEquals(
             listOf(
                 ContactField("Mobile", "(555) 010-1000"),
-                ContactField("Home", "ada@example.com"),
+                ContactField("Home email", "ada@example.com"),
                 ContactField("Notes", "Evening calls"),
             ),
             panel?.fields,
@@ -92,7 +92,7 @@ class ContactPanelTest {
                 ContactField("Work", "5550101000"),
                 ContactField("Other", "555-0199"),
                 ContactField("Phone", "123"),
-                ContactField("Home", "Ada@Example.com"),
+                ContactField("Home email", "Ada@Example.com"),
             ),
             panel?.fields,
         )
@@ -156,6 +156,15 @@ class ContactPanelTest {
         )
         assertFalse(contactSheetAvailable(ContactAccess.Off, null, ringing = false))
         assertFalse(contactSheetAvailable(ContactAccess.Unknown, null, ringing = false))
+    }
+
+    @Test
+    fun anEmailTypeIsNamedAsThatKindOfEmail() {
+        assertEquals("Email", emailRowLabel("", "Email"))
+        assertEquals("Email", emailRowLabel("Email", "Email"))
+        assertEquals("Home email", emailRowLabel("Home", "Email"))
+        assertEquals("Work email", emailRowLabel("Work", "Email"))
+        assertEquals("Home email", emailRowLabel("Home email", "Email"))
     }
 
     @Test
